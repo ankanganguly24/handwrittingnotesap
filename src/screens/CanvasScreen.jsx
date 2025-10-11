@@ -12,10 +12,9 @@ import useNetworkStatus from '../hooks/useNetworkStatus';
 const STORAGE_KEY = '@handwriting_strokes';
 
 export default function CanvasScreen() {
-  const [strokes, setStrokes] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   
-  const [currentStroke, addPoint, endStroke, undo, redo, clear] = useCanvasEngine();
+  const [currentStroke, addPoint, endStroke, undo, redo, clear, getAllStrokes, loadStrokes] = useCanvasEngine();
 
   const networkStatus = useNetworkStatus();
   const canvasRef = useRef(null);
@@ -30,8 +29,6 @@ export default function CanvasScreen() {
       onMoveShouldSetPanResponder: () => true,
       onPanResponderGrant: (evt, gestureState) => {
         const { locationX, locationY, pageX, pageY } = evt.nativeEvent;
-        console.log('[PanResponder] grant - raw coords:', { locationX, locationY, pageX, pageY });
-        // Use locationX/locationY since the overlay is positioned relative to the wrapper
         const x = locationX || 0;
         const y = locationY || 0;
         setTouchDebug(`Touch at ${Math.round(x)}, ${Math.round(y)}`);
@@ -39,47 +36,69 @@ export default function CanvasScreen() {
       },
       onPanResponderMove: (evt, gestureState) => {
         const { locationX, locationY, pageX, pageY } = evt.nativeEvent;
-        // Use locationX/locationY since the overlay is positioned relative to the wrapper
         const x = locationX || 0;
         const y = locationY || 0;
-        // console.log('[PanResponder] move', Math.round(x), Math.round(y));
         addPoint({ x, y });
       },
       onPanResponderRelease: (evt, gestureState) => {
-        console.log('[PanResponder] release');
         onStrokeEnd();
       },
       onPanResponderTerminate: (evt, gestureState) => {
-        console.log('[PanResponder] terminate');
         onStrokeEnd();
       },
     })
   ).current;
 
   useEffect(() => {
-    const loadStrokes = async () => {
+    const loadStrokesFromStorage = async () => {
       try {
         const stored = await AsyncStorage.getItem(STORAGE_KEY);
-        if (stored) setStrokes(JSON.parse(stored));
+        if (stored) {
+          const parsedStrokes = JSON.parse(stored);
+          if (parsedStrokes.length > 0) {
+            loadStrokes(parsedStrokes);
+          }
+        }
       } catch (err) {
         console.log('Error loading strokes:', err);
       } finally {
         setIsLoading(false);
       }
     };
-    loadStrokes();
-  }, []);
+    loadStrokesFromStorage();
+  }, []); // Remove loadStrokes dependency
+
+  // Create a separate ref to track when we need to save
+  const saveTimeoutRef = useRef(null);
+  const lastStrokeCountRef = useRef(0);
 
   useEffect(() => {
-    const saveStrokes = async () => {
-      try {
-        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(strokes));
-      } catch (err) {
-        console.log('Error saving strokes:', err);
+    const currentStrokeCount = getAllStrokes().length;
+    
+    if (currentStrokeCount !== lastStrokeCountRef.current && currentStrokeCount > 0) {
+      lastStrokeCountRef.current = currentStrokeCount;
+      
+      // Debounce saving to avoid too frequent saves
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
       }
-    };
-    saveStrokes();
-  }, [strokes]);
+      
+      saveTimeoutRef.current = setTimeout(async () => {
+        try {
+          const allStrokes = getAllStrokes();
+          const strokesToSave = allStrokes.map(stroke => ({
+            points: stroke,
+            path: pointsToSvgPath(stroke),
+            width: 3,
+            color: 'black'
+          }));
+          await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(strokesToSave));
+        } catch (err) {
+          console.log('Error saving strokes:', err);
+        }
+      }, 500); // Save after 500ms of no new strokes
+    }
+  }, [currentStroke, getAllStrokes().length]); // Depend on stroke count, not the array itself
 
   const pointsToSvgPath = points => {
     if (!points || points.length === 0) return '';
@@ -88,21 +107,17 @@ export default function CanvasScreen() {
 
 
   const onStrokeEnd = useCallback(() => {
-    if (currentStroke.length > 0) {
-      const svg = pointsToSvgPath(currentStroke);
-      setStrokes(prev => [...prev, { path: svg, width: 3, color: 'black' }]);
-      endStroke();
-    }
-  }, [currentStroke, endStroke]);
+    endStroke();
+  }, [endStroke]);
 
   const handleClear = () => {
     clear();
-    setStrokes([]);
   };
+
   const handleUndo = () => {
     undo();
-    setStrokes(prev => prev.slice(0, prev.length - 1));
   };
+
   const handleRedo = () => redo();
   const handleSave = () => Alert.alert('Saved!', 'Your handwriting has been saved locally.');
 
@@ -124,23 +139,19 @@ export default function CanvasScreen() {
           const layout = e.nativeEvent.layout;
           setCanvasLayout(layout);
           canvasLayoutRef.current = layout;
-          console.log('canvas layout', layout);
         }}
         pointerEvents="box-none"
       >
         <Canvas style={GlobalStyles.canvasContainer}>
-          {strokes.map((stroke, idx) => {
-            const pathStr = typeof stroke.path === 'string' ? stroke.path : pointsToSvgPath(stroke.path);
-            return (
-              <Path
-                key={idx}
-                path={pathStr}
-                color={stroke.color || 'black'}
-                style="stroke"
-                strokeWidth={stroke.width || 3}
-              />
-            );
-          })}
+          {getAllStrokes().map((stroke, idx) => (
+            <Path
+              key={idx}
+              path={pointsToSvgPath(stroke)}
+              color="black"
+              style="stroke"
+              strokeWidth={3}
+            />
+          ))}
 
           {currentStroke.length > 0 && (
             <Path
@@ -181,3 +192,4 @@ export default function CanvasScreen() {
     </View>
   );
 }
+
