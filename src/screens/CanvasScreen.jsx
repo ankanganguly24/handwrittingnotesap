@@ -178,7 +178,9 @@ export default function CanvasScreen() {
       </View>
 
       <StrokePreview
-        strokes={currentStroke.length > 0 ? [{ path: pointsToSvgPath(currentStroke) }] : []}
+        allStrokes={getAllStrokes()}
+        currentStroke={currentStroke}
+        canvasLayout={canvasLayout}
       />
 
       <Toolbar
