@@ -1,11 +1,11 @@
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View } from 'react-native';
-import CanvasScreen from './src/screens/CanvasScreen';
+import { StyleSheet, View } from 'react-native';
+import AppNavigator from './app/navigation/AppNavigator';
 
 export default function App() {
   return (
     <View style={styles.container}>
-      <CanvasScreen />
+      <AppNavigator />
       <StatusBar style="auto" />
     </View>
   );
@@ -15,7 +15,5 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
 });
