@@ -1,30 +1,51 @@
-import { useState, useEffect } from 'react';
-import { PerformanceObserver, performance } from 'perf_hooks';
-import { Platform } from 'react-native';
+import { useState, useEffect, useRef } from 'react';
 
-export default function usePerformanceStatus() {
-  const [fps, setFps] = useState(0);
+export default function usePerformanceStats() {
+  const [fps, setFps] = useState(60);
+  const [memoryUsage, setMemoryUsage] = useState(0);
+  const [renderTime, setRenderTime] = useState(0);
+  const frameCountRef = useRef(0);
+  const lastTimeRef = useRef(Date.now());
 
   useEffect(() => {
-    let frameCount = 0;
-    let lastTime = Date.now();
-
-    const interval = setInterval(() => {
+    let animationFrameId;
+    
+    const measurePerformance = () => {
       const now = Date.now();
-      const delta = now - lastTime;
-      setFps(Math.round((frameCount * 1000) / delta));
-      frameCount = 0;
-      lastTime = now;
-    }, 1000);
-
-    const onFrame = () => {
-      frameCount += 1;
-      requestAnimationFrame(onFrame);
+      frameCountRef.current += 1;
+      
+      // Calculate FPS every second
+      if (now - lastTimeRef.current >= 1000) {
+        const delta = now - lastTimeRef.current;
+        const currentFps = Math.round((frameCountRef.current * 1000) / delta);
+        setFps(currentFps);
+        frameCountRef.current = 0;
+        lastTimeRef.current = now;
+        
+        // Simulate memory usage (in MB)
+        const simulatedMemory = 50 + Math.random() * 20;
+        setMemoryUsage(simulatedMemory);
+        
+        // Simulate render time (in ms)
+        const simulatedRenderTime = 8 + Math.random() * 8;
+        setRenderTime(simulatedRenderTime);
+      }
+      
+      animationFrameId = requestAnimationFrame(measurePerformance);
     };
-    requestAnimationFrame(onFrame);
-
-    return () => clearInterval(interval);
+    
+    measurePerformance();
+    
+    return () => {
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+      }
+    };
   }, []);
 
-  return { fps };
+  return { 
+    fps, 
+    memoryUsage: Math.round(memoryUsage), 
+    renderTime: Math.round(renderTime * 10) / 10 
+  };
 }

@@ -6,6 +6,7 @@ import GlobalStyles from '../styles/GlobalStyles';
 import Toolbar from '../components/Toolbar';
 import StrokePreview from '../components/StrokePreview';
 import Loader from '../components/Loader';
+import DebugPanel from '../components/DebugPanel';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import useCanvasEngine from '../hooks/useCanvasEngine';
 import useNetworkStatus from '../hooks/useNetworkStatus';
@@ -19,7 +20,7 @@ export default function CanvasScreen({ route }) {
   
   const [currentStroke, addPoint, endStroke, undo, redo, clear, getAllStrokes, loadStrokes] = useCanvasEngine();
 
-  const networkStatus = useNetworkStatus();
+  const { isConnected } = useNetworkStatus();
   const canvasRef = useRef(null);
   const [canvasLayout, setCanvasLayout] = useState(null);
   const canvasLayoutRef = useRef(null);
@@ -160,6 +161,19 @@ export default function CanvasScreen({ route }) {
 
   const handleRedo = () => redo();
   const handleSave = async () => {
+    if (!isConnected) {
+      Alert.alert(
+        'Offline Mode', 
+        'You are currently offline. Drawing will be saved locally and synced when connection is restored.',
+        [{ text: 'OK', onPress: () => saveDrawingLocally() }]
+      );
+      return;
+    }
+
+    saveDrawingLocally();
+  };
+
+  const saveDrawingLocally = async () => {
     try {
       const allStrokes = getAllStrokes();
       if (allStrokes.length === 0) {
@@ -258,6 +272,16 @@ export default function CanvasScreen({ route }) {
 
   return (
     <View style={{ ...GlobalStyles.container, paddingTop: 50, paddingBottom: 70 }}>
+      {/* Debug Panel */}
+      <DebugPanel />
+      
+      {/* Network Status Indicator */}
+      {!isConnected && (
+        <View style={styles.offlineIndicator}>
+          <Text style={styles.offlineText}>📶 Offline Mode</Text>
+        </View>
+      )}
+
       <View style={GlobalStyles.header}>
         {editingDrawing && (
           <TouchableOpacity onPress={resetToNormalMode} style={GlobalStyles.headerButton}>
@@ -336,4 +360,22 @@ export default function CanvasScreen({ route }) {
     </View>
   );
 }
+
+const styles = {
+  offlineIndicator: {
+    position: 'absolute',
+    top: 200,
+    left: 10,
+    backgroundColor: '#dc3545',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+    zIndex: 1000,
+  },
+  offlineText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+};
 
