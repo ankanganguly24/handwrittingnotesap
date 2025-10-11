@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { View, Alert, SafeAreaView, Text, TouchableOpacity } from 'react-native';
+import { View, Alert, SafeAreaView, Text, TouchableOpacity, PanResponder } from 'react-native';
 import { Canvas, Path } from '@shopify/react-native-skia';
 import GlobalStyles from '../styles/GlobalStyles';
 import Toolbar from '../components/Toolbar';
@@ -19,6 +19,42 @@ export default function CanvasScreen() {
 
   const networkStatus = useNetworkStatus();
   const canvasRef = useRef(null);
+  const [canvasLayout, setCanvasLayout] = useState(null);
+  const canvasLayoutRef = useRef(null);
+  const [touchDebug, setTouchDebug] = useState('No touch detected');
+
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (evt, gestureState) => {
+        const { locationX, locationY, pageX, pageY } = evt.nativeEvent;
+        console.log('[PanResponder] grant - raw coords:', { locationX, locationY, pageX, pageY });
+        // Use locationX/locationY since the overlay is positioned relative to the wrapper
+        const x = locationX || 0;
+        const y = locationY || 0;
+        setTouchDebug(`Touch at ${Math.round(x)}, ${Math.round(y)}`);
+        addPoint({ x, y });
+      },
+      onPanResponderMove: (evt, gestureState) => {
+        const { locationX, locationY, pageX, pageY } = evt.nativeEvent;
+        // Use locationX/locationY since the overlay is positioned relative to the wrapper
+        const x = locationX || 0;
+        const y = locationY || 0;
+        // console.log('[PanResponder] move', Math.round(x), Math.round(y));
+        addPoint({ x, y });
+      },
+      onPanResponderRelease: (evt, gestureState) => {
+        console.log('[PanResponder] release');
+        onStrokeEnd();
+      },
+      onPanResponderTerminate: (evt, gestureState) => {
+        console.log('[PanResponder] terminate');
+        onStrokeEnd();
+      },
+    })
+  ).current;
 
   useEffect(() => {
     const loadStrokes = async () => {
@@ -77,23 +113,20 @@ export default function CanvasScreen() {
       <View style={GlobalStyles.header}>
         <Text style={GlobalStyles.headerTitle}>✍️ Whats on your mind?</Text>
         <TouchableOpacity onPress={handleSave} style={GlobalStyles.headerButton}>
-          <Text style={GlobalStyles.headerButtonText}>Save</Text>
+          <Text style={GlobalStyles.headerButtonText}>Recents</Text>
         </TouchableOpacity>
       </View>
 
       <View
         ref={canvasRef}
         style={GlobalStyles.canvasWrapper}
-        onStartShouldSetResponder={() => true}
-        onResponderGrant={e => {
-          const { locationX: x, locationY: y } = e.nativeEvent;
-          addPoint({ x, y });
+        onLayout={e => {
+          const layout = e.nativeEvent.layout;
+          setCanvasLayout(layout);
+          canvasLayoutRef.current = layout;
+          console.log('canvas layout', layout);
         }}
-        onResponderMove={e => {
-          const { locationX: x, locationY: y } = e.nativeEvent;
-          addPoint({ x, y });
-        }}
-        onResponderRelease={onStrokeEnd}
+        pointerEvents="box-none"
       >
         <Canvas style={GlobalStyles.canvasContainer}>
           {strokes.map((stroke, idx) => {
@@ -118,14 +151,25 @@ export default function CanvasScreen() {
             />
           )}
         </Canvas>
+        
+        {/* Transparent overlay for touch detection */}
+        <View 
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'transparent'
+          }}
+          {...panResponder.panHandlers}
+        />
       </View>
 
-      {/* Stroke preview
       <StrokePreview
         strokes={currentStroke.length > 0 ? [{ path: pointsToSvgPath(currentStroke) }] : []}
-      /> */}
+      />
 
-      {/* Toolbar */}
       <Toolbar
         actions={{
           undo: handleUndo,
