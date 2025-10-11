@@ -339,8 +339,8 @@ export default function CanvasScreen({ route }) {
   const getStrokeColor = () => isCollaborativeMode ? 'blue' : 'black';
   const getHeaderTitle = () => {
     if (editingDrawing) return `✏️ Editing: ${editingDrawing.title}`;
-    if (isCollaborativeMode) return '🤝 Collaborative Drawing';
-    return '✍️ Whats on your mind?';
+    if (isCollaborativeMode) return '🤝 Collaborative';
+    return '✍️ Thoughts?';
   };
 
   if (isLoading) return <Loader message={isCollaborativeMode ? "Loading collaborative canvas..." : "Loading canvas..."} />;
