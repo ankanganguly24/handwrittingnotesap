@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { View, Alert, SafeAreaView, Text, TouchableOpacity, PanResponder } from 'react-native';
+import { View, Alert, Text, TouchableOpacity, PanResponder } from 'react-native';
 import { Canvas, Path } from '@shopify/react-native-skia';
 import { useNavigation } from '@react-navigation/native';
 import GlobalStyles from '../styles/GlobalStyles';
@@ -12,11 +12,16 @@ import useCanvasEngine from '../hooks/useCanvasEngine';
 import useNetworkStatus from '../hooks/useNetworkStatus';
 
 const STORAGE_KEY = '@handwriting_strokes';
+const COLLABORATIVE_STORAGE_KEY = '@collaborative_strokes';
 
 export default function CanvasScreen({ route }) {
   const navigation = useNavigation();
   const [isLoading, setIsLoading] = useState(true);
   const [editingDrawing, setEditingDrawing] = useState(null);
+  
+  // Check if we're in collaborative mode
+  const isCollaborativeMode = route?.params?.collaborativeMode || false;
+  const [collaborators, setCollaborators] = useState(isCollaborativeMode ? ['User1'] : []);
   
   const [currentStroke, addPoint, endStroke, undo, redo, clear, getAllStrokes, loadStrokes] = useCanvasEngine();
 
@@ -70,8 +75,9 @@ export default function CanvasScreen({ route }) {
             loadStrokes(strokesAsPoints);
           }
         } else {
-          // Normal loading from storage
-          const stored = await AsyncStorage.getItem(STORAGE_KEY);
+          // Load from appropriate storage based on mode
+          const storageKey = isCollaborativeMode ? COLLABORATIVE_STORAGE_KEY : STORAGE_KEY;
+          const stored = await AsyncStorage.getItem(storageKey);
           if (stored) {
             const parsedStrokes = JSON.parse(stored);
             if (parsedStrokes.length > 0) {
@@ -86,7 +92,7 @@ export default function CanvasScreen({ route }) {
       }
     };
     loadStrokesFromStorage();
-  }, [route?.params]);
+  }, [route?.params, isCollaborativeMode]);
 
   // Convert SVG path back to points
   const svgPathToPoints = (pathString) => {
@@ -119,10 +125,11 @@ export default function CanvasScreen({ route }) {
     if (currentStrokeCount !== lastStrokeCountRef.current && currentStrokeCount > 0) {
       lastStrokeCountRef.current = currentStrokeCount;
       
-      // Debounce saving to avoid too frequent saves
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
       }
+      
+      const saveDelay = isCollaborativeMode ? 300 : 500; // Faster sync for collaboration
       
       saveTimeoutRef.current = setTimeout(async () => {
         try {
@@ -131,15 +138,18 @@ export default function CanvasScreen({ route }) {
             points: stroke,
             path: pointsToSvgPath(stroke),
             width: 3,
-            color: 'black'
+            color: isCollaborativeMode ? 'blue' : 'black',
+            ...(isCollaborativeMode && { userId: 'currentUser' })
           }));
-          await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(strokesToSave));
+          
+          const storageKey = isCollaborativeMode ? COLLABORATIVE_STORAGE_KEY : STORAGE_KEY;
+          await AsyncStorage.setItem(storageKey, JSON.stringify(strokesToSave));
         } catch (err) {
           console.log('Error saving strokes:', err);
         }
-      }, 500); // Save after 500ms of no new strokes
+      }, saveDelay);
     }
-  }, [currentStroke, getAllStrokes().length]); // Depend on stroke count, not the array itself
+  }, [currentStroke, getAllStrokes().length, isCollaborativeMode]); // Depend on stroke count, not the array itself
 
   const pointsToSvgPath = points => {
     if (!points || points.length === 0) return '';
@@ -152,7 +162,22 @@ export default function CanvasScreen({ route }) {
   }, [endStroke]);
 
   const handleClear = () => {
-    clear();
+    if (isCollaborativeMode) {
+      Alert.alert(
+        'Clear Canvas',
+        'This will clear the canvas for all collaborators. Are you sure?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { 
+            text: 'Clear for All', 
+            style: 'destructive',
+            onPress: () => clear()
+          }
+        ]
+      );
+    } else {
+      clear();
+    }
   };
 
   const handleUndo = () => {
@@ -181,15 +206,21 @@ export default function CanvasScreen({ route }) {
         return;
       }
 
+      const baseData = {
+        strokes: allStrokes.map(stroke => ({
+          path: pointsToSvgPath(stroke),
+          color: isCollaborativeMode ? 'blue' : 'black',
+          width: 3,
+          ...(isCollaborativeMode && { userId: 'currentUser' })
+        })),
+        createdAt: new Date().toISOString()
+      };
+
       if (editingDrawing) {
         // Update existing drawing
         const updatedDrawing = {
           ...editingDrawing,
-          strokes: allStrokes.map(stroke => ({
-            path: pointsToSvgPath(stroke),
-            color: 'black',
-            width: 3
-          })),
+          ...baseData,
           updatedAt: new Date().toISOString()
         };
 
@@ -205,20 +236,22 @@ export default function CanvasScreen({ route }) {
         // Save new drawing
         const drawingData = {
           id: Date.now().toString(),
-          title: `Drawing ${new Date().toLocaleDateString()}`,
-          strokes: allStrokes.map(stroke => ({
-            path: pointsToSvgPath(stroke),
-            color: 'black',
-            width: 3
-          })),
-          createdAt: new Date().toISOString()
+          title: isCollaborativeMode 
+            ? `Collaborative Session ${new Date().toLocaleDateString()}`
+            : `Drawing ${new Date().toLocaleDateString()}`,
+          ...baseData,
+          ...(isCollaborativeMode && { collaborators })
         };
 
         const existing = await AsyncStorage.getItem('@saved_drawings');
         const drawings = existing ? JSON.parse(existing) : [];
         drawings.push(drawingData);
         await AsyncStorage.setItem('@saved_drawings', JSON.stringify(drawings));
-        Alert.alert('Saved!', 'Your drawing has been saved successfully!');
+        
+        const successMessage = isCollaborativeMode 
+          ? 'Collaborative session has been saved successfully!'
+          : 'Your drawing has been saved successfully!';
+        Alert.alert('Saved!', successMessage);
       }
       
       navigation.navigate('Save');
@@ -257,6 +290,41 @@ export default function CanvasScreen({ route }) {
     }
   };
 
+  const handleCollaborate = () => {
+    if (isCollaborativeMode) {
+      // Exit collaborative mode
+      navigation.navigate('Canvas');
+    } else {
+      // Enter collaborative mode
+      if (editingDrawing) {
+        Alert.alert(
+          'Exit Edit Mode',
+          'You need to exit edit mode to start collaboration. What would you like to do?',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { 
+              text: 'Discard Changes', 
+              style: 'destructive',
+              onPress: () => {
+                resetToNormalMode();
+                navigation.navigate('Canvas', { collaborativeMode: true });
+              }
+            },
+            {
+              text: 'Save & Collaborate',
+              onPress: async () => {
+                await handleSave();
+                navigation.navigate('Canvas', { collaborativeMode: true });
+              }
+            }
+          ]
+        );
+      } else {
+        navigation.navigate('Canvas', { collaborativeMode: true });
+      }
+    }
+  };
+
   // Reset to normal canvas mode
   const resetToNormalMode = () => {
     setEditingDrawing(null);
@@ -268,15 +336,34 @@ export default function CanvasScreen({ route }) {
     });
   };
 
-  if (isLoading) return <Loader message="Loading canvas..." />;
+  const getStrokeColor = () => isCollaborativeMode ? 'blue' : 'black';
+  const getHeaderTitle = () => {
+    if (editingDrawing) return `✏️ Editing: ${editingDrawing.title}`;
+    if (isCollaborativeMode) return '🤝 Collaborative Drawing';
+    return '✍️ Whats on your mind?';
+  };
+
+  if (isLoading) return <Loader message={isCollaborativeMode ? "Loading collaborative canvas..." : "Loading canvas..."} />;
 
   return (
     <View style={{ ...GlobalStyles.container, paddingTop: 50, paddingBottom: 70 }}>
       {/* Debug Panel */}
       <DebugPanel />
       
+      {/* Collaboration Status */}
+      {isCollaborativeMode && (
+        <View style={styles.collaborationStatus}>
+          <Text style={styles.collaborationText}>
+            🤝 {collaborators.length} collaborators
+          </Text>
+          {!isConnected && (
+            <Text style={styles.offlineText}>📶 Offline</Text>
+          )}
+        </View>
+      )}
+      
       {/* Network Status Indicator */}
-      {!isConnected && (
+      {!isConnected && !isCollaborativeMode && (
         <View style={styles.offlineIndicator}>
           <Text style={styles.offlineText}>📶 Offline Mode</Text>
         </View>
@@ -290,12 +377,19 @@ export default function CanvasScreen({ route }) {
         )}
         
         <Text style={[GlobalStyles.headerTitle, { flex: 1, textAlign: 'center' }]}>
-          {editingDrawing ? `✏️ Editing: ${editingDrawing.title}` : '✍️ Whats on your mind?'}
+          {getHeaderTitle()}
         </Text>
         
-        <TouchableOpacity onPress={handleNotes} style={GlobalStyles.headerButton}>
-          <Text style={GlobalStyles.headerButtonText}>Notes</Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row' }}>
+          <TouchableOpacity onPress={handleCollaborate} style={[GlobalStyles.headerButton, { marginRight: 5 }]}>
+            <Text style={GlobalStyles.headerButtonText}>
+              {isCollaborativeMode ? '👤' : '🤝'}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={handleNotes} style={GlobalStyles.headerButton}>
+            <Text style={GlobalStyles.headerButtonText}>Notes</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View
@@ -313,7 +407,7 @@ export default function CanvasScreen({ route }) {
             <Path
               key={idx}
               path={pointsToSvgPath(stroke)}
-              color="black"
+              color={getStrokeColor()}
               style="stroke"
               strokeWidth={3}
             />
@@ -322,7 +416,7 @@ export default function CanvasScreen({ route }) {
           {currentStroke.length > 0 && (
             <Path
               path={pointsToSvgPath(currentStroke)}
-              color="black"
+              color={getStrokeColor()}
               style="stroke"
               strokeWidth={3}
             />
@@ -362,6 +456,24 @@ export default function CanvasScreen({ route }) {
 }
 
 const styles = {
+  collaborationStatus: {
+    position: 'absolute',
+    top: 200,
+    left: 10,
+    backgroundColor: 'rgba(0, 123, 255, 0.9)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+    zIndex: 1000,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  collaborationText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginRight: 8,
+  },
   offlineIndicator: {
     position: 'absolute',
     top: 200,
