@@ -49,7 +49,7 @@ export const useRealTimeCollaboration = (roomId, enabled = false) => {
 
   // Initialize Yjs document and WebSocket connection
   useEffect(() => {
-    // Better validation
+    // Simple validation
     if (!enabled) {
       console.log(`❌ Collaboration disabled - enabled: ${enabled}`);
       shouldReconnectRef.current = false;
@@ -57,18 +57,20 @@ export const useRealTimeCollaboration = (roomId, enabled = false) => {
       return;
     }
 
-    if (!roomId || roomId === 'null' || roomId === 'undefined' || roomId.trim() === '') {
-      console.error(`❌ Invalid roomId - enabled: ${enabled}, roomId: "${roomId}"`);
-      shouldReconnectRef.current = false;
-      setConnectionStatus('error');
-      setCollaborationStats(prev => ({
-        ...prev,
-        error: 'Invalid room ID'
-      }));
-      return;
+    // Enhanced roomId validation with fallback
+    let validRoomId = roomId;
+    
+    if (!roomId || 
+        roomId === 'null' || 
+        roomId === 'undefined' || 
+        typeof roomId !== 'string' || 
+        roomId.trim() === '') {
+      
+      console.log(`⚠️ Invalid roomId provided: "${roomId}", using fallback`);
+      validRoomId = 'collab_room_main'; // Fallback to default
     }
 
-    const trimmedRoomId = roomId.trim();
+    const trimmedRoomId = validRoomId.trim();
     console.log(`🔗 Initializing collaboration for room: "${trimmedRoomId}", user: ${currentUserId}`);
 
     isMountedRef.current = true;
@@ -533,4 +535,4 @@ export const useRealTimeCollaboration = (roomId, enabled = false) => {
     isConnected: connectionStatus === 'connected',
     roomId,
   };
-};
+}

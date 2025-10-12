@@ -7,11 +7,25 @@ export const useCollaborationEngine = (docKey = 'yjs_canvas_doc', isCollaborativ
   const strokes = ydoc.getArray('strokes');
   const [localStrokes, setLocalStrokes] = useState([]);
   const [connectionStatus, setConnectionStatus] = useState('disconnected');
-  const isEnabled = docKey !== null && docKey !== undefined;
+  
+  // Fix validation - handle null docKey properly
+  const isEnabled = Boolean(isCollaborative && 
+                           docKey && 
+                           docKey !== 'null' && 
+                           docKey !== 'undefined' &&
+                           typeof docKey === 'string' && 
+                           docKey.trim().length > 0);
+
+  console.log(`🔧 Collaboration Engine - enabled: ${isEnabled}, docKey: "${docKey}", isCollaborative: ${isCollaborative}`);
 
   // Load persisted CRDT state on startup
   useEffect(() => {
-    if (!isEnabled) return;
+    if (!isEnabled) {
+      console.log(`❌ Collaboration engine disabled`);
+      return;
+    }
+
+    console.log(`🔧 Loading collaboration engine for docKey: "${docKey}"`);
 
     const loadDoc = async () => {
       try {
@@ -19,6 +33,7 @@ export const useCollaborationEngine = (docKey = 'yjs_canvas_doc', isCollaborativ
         if (stored) {
           const update = Uint8Array.from(JSON.parse(stored));
           Y.applyUpdate(ydoc, update);
+          console.log(`✅ Loaded CRDT state for ${docKey}`);
         }
         setLocalStrokes([...strokes.toArray()]);
       } catch (err) {
@@ -35,6 +50,7 @@ export const useCollaborationEngine = (docKey = 'yjs_canvas_doc', isCollaborativ
         const update = Y.encodeStateAsUpdate(ydoc);
         AsyncStorage.setItem(docKey, JSON.stringify(Array.from(update)));
         setLocalStrokes([...strokes.toArray()]);
+        console.log(`💾 Persisted CRDT state for ${docKey}`);
       } catch (err) {
         console.error('Error persisting CRDT state:', err);
       }
@@ -42,7 +58,10 @@ export const useCollaborationEngine = (docKey = 'yjs_canvas_doc', isCollaborativ
 
     strokes.observe(observer);
 
-    return () => strokes.unobserve(observer);
+    return () => {
+      strokes.unobserve(observer);
+      console.log(`🧹 Cleanup collaboration engine for ${docKey}`);
+    };
   }, [docKey, isEnabled]);
 
   // Actions

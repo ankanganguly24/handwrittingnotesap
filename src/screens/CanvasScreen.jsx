@@ -24,46 +24,10 @@ export default function CanvasScreen({ route }) {
   const isCollaborativeMode = route?.params?.collaborativeMode || false;
   const roomIdParam = route?.params?.roomId;
   
-  // Fix roomId generation - ensure it's NEVER null when collaborative mode is true
-  const [roomId] = useState(() => {
-    if (!isCollaborativeMode) {
-      console.log('🚫 Not in collaborative mode, roomId will be null');
-      return null;
-    }
-    
-    // Always return a valid roomId for collaborative mode
-    let validRoomId;
-    
-    if (roomIdParam && roomIdParam.trim() && roomIdParam !== 'null' && roomIdParam !== 'undefined') {
-      validRoomId = roomIdParam.trim();
-      console.log(`🔗 Using provided roomId: ${validRoomId}`);
-    } else {
-      // Use a fixed room for testing - all devices will join this room
-      validRoomId = 'collab_room_main';
-      console.log(`🔗 Using default roomId: ${validRoomId}`);
-    }
-    
-    return validRoomId;
-  });
+  // Force default room for collaborative mode - simpler approach
+  const roomId = isCollaborativeMode ? 'collab_room_main' : null;
   
   console.log(`🏠 Canvas Screen - Collaborative Mode: ${isCollaborativeMode}, Room ID: ${roomId}`);
-  
-  // Add validation to ensure roomId is never null in collaborative mode
-  useEffect(() => {
-    if (isCollaborativeMode && !roomId) {
-      console.error('❌ CRITICAL ERROR: Collaborative mode is true but roomId is null!');
-      Alert.alert(
-        'Collaboration Error',
-        'Failed to initialize collaborative session. Switching to normal mode.',
-        [
-          {
-            text: 'OK',
-            onPress: () => navigation.navigate('Canvas', { collaborativeMode: false })
-          }
-        ]
-      );
-    }
-  }, [isCollaborativeMode, roomId, navigation]);
   
   const [currentStroke, addPoint, endStroke, undo, redo, clear, getAllStrokes, loadStrokes] = useCanvasEngine();
 
@@ -658,4 +622,3 @@ const styles = {
     fontWeight: 'bold',
   },
 };
-
