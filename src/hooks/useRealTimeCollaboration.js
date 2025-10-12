@@ -137,6 +137,7 @@ export const useRealTimeCollaboration = (roomId, enabled = false) => {
         }, 15000);
 
         newWs.onopen = () => {
+          console.log(`[RTC] WebSocket connected to room: ${trimmedRoomId}`);
           if (!isMountedRef.current) {
             newWs.close();
             return;
@@ -167,29 +168,37 @@ export const useRealTimeCollaboration = (roomId, enabled = false) => {
 
         newWs.onmessage = (event) => {
           if (!isMountedRef.current) return;
-          
+
           try {
             const data = event.data;
-            
+            console.log(`[RTC] Received message: ${data}`);
+
             if (data.includes('room-info')) {
               const info = JSON.parse(data);
+              console.log(`[RTC] Room info: ${JSON.stringify(info)}`);
               return;
             }
-            
+
             if (!data || data === '[]' || data === '[0,0]') {
+              console.log('[RTC] Ignoring empty or invalid message.');
               return;
             }
-            
+
             const update = new Uint8Array(JSON.parse(data));
             if (update.length <= 2) {
+              console.log('[RTC] Ignoring small update.');
               return;
             }
-            
+
             Y.applyUpdate(yDoc, update, 'server');
-          } catch (error) {}
+            console.log('[RTC] Applied update to Y.Doc.');
+          } catch (error) {
+            console.error(`[RTC] Error processing message: ${error.message}`);
+          }
         };
 
         newWs.onerror = (error) => {
+          console.error(`[RTC] WebSocket error: ${error.message}`);
           clearTimeout(connectionTimer);
           isConnectingRef.current = false;
           if (isMountedRef.current) {
@@ -199,6 +208,7 @@ export const useRealTimeCollaboration = (roomId, enabled = false) => {
         };
 
         newWs.onclose = (event) => {
+          console.log(`[RTC] WebSocket closed: ${event.code} - ${event.reason}`);
           clearTimeout(connectionTimer);
           isConnectingRef.current = false;
           
@@ -222,9 +232,11 @@ export const useRealTimeCollaboration = (roomId, enabled = false) => {
         };
 
         const updateHandler = (update, origin) => {
+          console.log(`[RTC] Y.Doc update triggered. Origin: ${origin}`);
           if (newWs && newWs.readyState === 1 && origin !== 'server') {
             if (update.length > 2) {
               newWs.send(JSON.stringify(Array.from(update)));
+              console.log('[RTC] Sent update to server.');
             }
           }
         };
@@ -247,15 +259,18 @@ export const useRealTimeCollaboration = (roomId, enabled = false) => {
 
     const strokeObserver = () => {
       if (!isMountedRef.current) return;
-      
-      const strokes = yStrokesRef.current.toArray();
-      setLocalStrokes([...strokes]);
-      setCollaborationStats((prev) => ({
-        ...prev,
-        totalStrokes: strokes.length,
-        remoteStrokes: strokes.filter((s) => s.userId !== currentUserId).length,
-        localStrokes: strokes.filter((s) => s.userId === currentUserId).length,
-      }));
+
+      const strokesRaw = yStrokesRef.current.toArray();
+      console.log('[RTC] Yjs raw strokes array:', strokesRaw);
+
+      // Each entry is an array of points, so wrap as { points: [...] }
+      const strokes = strokesRaw
+        .filter(arr => Array.isArray(arr) && arr.length > 0)
+        .map(arr => ({ points: arr }));
+
+      console.log('[RTC] Observed strokes in Yjs document:', strokes);
+
+      setLocalStrokes(strokes);
     };
 
     const userObserver = () => {
@@ -396,30 +411,56 @@ export const useRealTimeCollaboration = (roomId, enabled = false) => {
 
   const addStroke = useCallback(
     (stroke) => {
-      if (!enabled || !yStrokesRef.current) return;
-
-      const strokeWithUser = {
-        points: stroke.points || [],
-        path: stroke.path || '',
-        color: stroke.color || 'blue',
-        width: stroke.width || 3,
-        userId: currentUserId,
-        timestamp: Date.now(),
-      };
-
+      console.log('[RTC] Adding stroke:', stroke);
+      if (!enabled || !yStrokesRef.current) {
+        console.log('[RTC] addStroke skipped: Collaboration is disabled or yStrokesRef is null.');
+        return;
+      }
+      // Only push if stroke and stroke.points are valid and non-empty
+      if (!stroke || !Array.isArray(stroke.points) || stroke.points.length === 0) return;
       try {
-        if (connectionStatus === 'connected') {
-          yStrokesRef.current.push([strokeWithUser]);
-        } else {
-          saveOfflineStroke(strokeWithUser);
-          setLocalStrokes((prev) => [...prev, strokeWithUser]);
+        // Defensive: ensure no undefined or empty arrays are pushed
+        const validPoints = stroke.points.filter(
+          p => p && typeof p.x === 'number' && typeof p.y === 'number'
+        );
+        if (!Array.isArray(validPoints) || validPoints.length === 0) return;
+        // Defensive: do not push undefined or empty arrays
+        yStrokesRef.current.push([validPoints]);
+        console.log('[RTC] Stroke points added to Yjs document:', stroke.points);
+
+        if (wsRef.current && wsRef.current.readyState === 1) {
+          const update = Y.encodeStateAsUpdate(yDocRef.current);
+          wsRef.current.send(JSON.stringify(Array.from(update)));
+          console.log('[RTC] Sent update to server.');
         }
       } catch (error) {
-        saveOfflineStroke(strokeWithUser);
-        setLocalStrokes((prev) => [...prev, strokeWithUser]);
+        console.error('[RTC] Error adding stroke:', error.message);
+        saveOfflineStroke(stroke.points);
+        setLocalStrokes((prev) => [...prev, { points: stroke.points }]);
       }
     },
-    [enabled, connectionStatus, currentUserId, roomId]
+    [enabled, currentUserId]
+  );
+
+  const addPointToStroke = useCallback(
+    (point) => {
+      if (!enabled || !yStrokesRef.current || !point) return;
+      const lastIndex = yStrokesRef.current.length - 1;
+      if (lastIndex < 0) return;
+      const lastStrokeArr = yStrokesRef.current.get(lastIndex);
+      if (!Array.isArray(lastStrokeArr) || lastStrokeArr.length === 0) return;
+      if (!point || typeof point.x !== 'number' || typeof point.y !== 'number') return;
+      lastStrokeArr.push(point);
+      yStrokesRef.current.delete(lastIndex, 1);
+      yStrokesRef.current.insert(lastIndex, [lastStrokeArr]);
+
+      // Propagate update
+      if (wsRef.current && wsRef.current.readyState === 1) {
+        const update = Y.encodeStateAsUpdate(yDocRef.current);
+        wsRef.current.send(JSON.stringify(Array.from(update)));
+      }
+    },
+    [enabled]
   );
 
   const clearCanvas = useCallback(() => {
@@ -435,11 +476,74 @@ export const useRealTimeCollaboration = (roomId, enabled = false) => {
 
   const undoLastStroke = useCallback(() => {
     if (!enabled || !yStrokesRef.current || yStrokesRef.current.length === 0) return;
-    
+
     try {
       yStrokesRef.current.delete(yStrokesRef.current.length - 1, 1);
+
+      // Immediately propagate the update to the server
+      if (wsRef.current && wsRef.current.readyState === 1) {
+        const update = Y.encodeStateAsUpdate(yDocRef.current);
+        wsRef.current.send(JSON.stringify(Array.from(update)));
+      }
     } catch (error) {}
-  }, [enabled, roomId]);
+  }, [enabled]);
+
+  const syncStrokesToYjs = useCallback(
+    (strokesToSync) => {
+      if (!enabled || !yStrokesRef.current || !Array.isArray(strokesToSync)) return;
+      
+      console.log('[RTC] syncStrokesToYjs input:', strokesToSync);
+      
+      try {
+        // Clear existing strokes safely
+        const currentLength = yStrokesRef.current.length;
+        if (currentLength > 0) {
+          yStrokesRef.current.delete(0, currentLength);
+        }
+        
+        // Process each stroke - they should be arrays of points from getAllStrokes()
+        strokesToSync.forEach(stroke => {
+          // getAllStrokes() returns arrays of points directly
+          if (Array.isArray(stroke) && stroke.length > 0) {
+            // Validate all points in the stroke
+            const validPoints = stroke.filter(p => 
+              p && 
+              typeof p === 'object' && 
+              typeof p.x === 'number' && 
+              typeof p.y === 'number' &&
+              !isNaN(p.x) && 
+              !isNaN(p.y)
+            );
+            
+            if (validPoints.length > 0) {
+              console.log('[RTC] Pushing valid stroke with', validPoints.length, 'points');
+              yStrokesRef.current.push([validPoints]);
+            }
+          }
+        });
+        
+        console.log('[RTC] Yjs array after sync:', yStrokesRef.current.toArray());
+        
+        // Send update to server
+        if (wsRef.current && wsRef.current.readyState === 1) {
+          const update = Y.encodeStateAsUpdate(yDocRef.current);
+          if (update && update.length > 2) {
+            wsRef.current.send(JSON.stringify(Array.from(update)));
+          }
+        }
+        
+      } catch (error) {
+        console.error('[RTC] Error syncing strokes:', error.message);
+        // Reset on error
+        try {
+          yStrokesRef.current.delete(0, yStrokesRef.current.length);
+        } catch (resetError) {
+          console.error('[RTC] Error resetting Yjs array:', resetError.message);
+        }
+      }
+    },
+    [enabled]
+  );
 
   return {
     localStrokes,
@@ -448,8 +552,10 @@ export const useRealTimeCollaboration = (roomId, enabled = false) => {
     collaborationStats,
     currentUserId,
     addStroke,
+    addPointToStroke,
     clearCanvas,
     undoLastStroke,
+    syncStrokesToYjs,
     isConnected: connectionStatus === 'connected',
     roomId,
   };

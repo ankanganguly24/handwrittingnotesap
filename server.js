@@ -45,42 +45,28 @@ wss.on('connection', (ws, req) => {
   ws.on('message', (message) => {
     try {
       const messageStr = message.toString();
-      
-      try {
-        const parsed = JSON.parse(messageStr);
-        if (parsed.type === 'ping') {
-          ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
-          return;
-        }
-      } catch (e) {}
-      
-      if (!messageStr || messageStr === '[]' || messageStr === '[0,0]' || messageStr.length < 5) {
-        return;
-      }
+      console.log(`[Server] Received message: ${messageStr}`);
 
       const update = new Uint8Array(JSON.parse(messageStr));
-      
-      if (update.length <= 2) {
-        return;
-      }
-
       Y.applyUpdate(doc, update);
-      
-      let broadcastCount = 0;
+
+      // Log the structure of the Yjs document
+      console.log('[Server] Current Y.Doc structure:', {
+        strokes: doc.getArray('strokes').toArray(),
+      });
+
+      // Broadcast the update to all clients
       clients.forEach((client) => {
         if (client !== ws && client.readyState === client.OPEN) {
-          try {
-            client.send(messageStr);
-            broadcastCount++;
-          } catch (error) {
-            clients.delete(client);
-          }
+          client.send(messageStr);
+          console.log(`[Server] Broadcasted update to client ${client.clientId}`);
         }
       });
-      
+
       ws.lastActivity = Date.now();
-      
-    } catch (error) {}
+    } catch (error) {
+      console.error(`[Server] Error processing message: ${error.message}`);
+    }
   });
 
   ws.on('pong', () => {

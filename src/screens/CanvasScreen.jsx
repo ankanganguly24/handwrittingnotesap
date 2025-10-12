@@ -52,19 +52,18 @@ export default function CanvasScreen({ route }) {
       ? realtimeCollab.localStrokes 
       : collaborationEngine.localStrokes;
 
-    if (collabStrokes && collabStrokes.length !== lastSyncedStrokeCount.current) {
+    console.log('[CanvasScreen] Collaborative strokes updated:', collabStrokes);
+
+    // For collaborative mode, collabStrokes is [{ points: [...] }, ...]
+    // We want to pass [ [...], [...], ... ] to loadStrokes
+    if (Array.isArray(collabStrokes) && collabStrokes.length > 0) {
+      const strokesAsPoints = collabStrokes.map(stroke => stroke.points || []);
+      console.log('[CanvasScreen] Loading strokes into canvas:', strokesAsPoints);
+      loadStrokes(strokesAsPoints);
       lastSyncedStrokeCount.current = collabStrokes.length;
-      
-      const strokesAsPoints = collabStrokes.map(stroke => {
-        if (!stroke.points || !Array.isArray(stroke.points)) {
-          return [];
-        }
-        return stroke.points;
-      }).filter(points => points.length > 0);
-      
-      if (strokesAsPoints.length > 0) {
-        loadStrokes(strokesAsPoints);
-      }
+    } else {
+      loadStrokes([]);
+      lastSyncedStrokeCount.current = 0;
     }
   }, [
     realtimeCollab.localStrokes, 
@@ -161,8 +160,41 @@ export default function CanvasScreen({ route }) {
   }, [currentStroke, getAllStrokes().length, isCollaborativeMode]); 
 
   const pointsToSvgPath = points => {
-    if (!points || points.length === 0) return '';
-    return points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+    // Add even more defensive checks
+    if (!points || !Array.isArray(points) || points.length === 0) {
+      console.log('[CanvasScreen] pointsToSvgPath: Invalid input:', points);
+      return '';
+    }
+    
+    try {
+      const validPoints = points.filter(p => {
+        if (!p || typeof p !== 'object') {
+          console.log('[CanvasScreen] pointsToSvgPath: Invalid point (not object):', p);
+          return false;
+        }
+        if (typeof p.x !== 'number' || typeof p.y !== 'number') {
+          console.log('[CanvasScreen] pointsToSvgPath: Invalid point (not numbers):', p);
+          return false;
+        }
+        if (isNaN(p.x) || isNaN(p.y)) {
+          console.log('[CanvasScreen] pointsToSvgPath: Invalid point (NaN):', p);
+          return false;
+        }
+        return true;
+      });
+      
+      if (validPoints.length === 0) {
+        console.log('[CanvasScreen] pointsToSvgPath: No valid points after filtering');
+        return '';
+      }
+      
+      const path = validPoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+      return path;
+    } catch (error) {
+      console.error('[CanvasScreen] Error converting points to SVG path:', error);
+      console.error('[CanvasScreen] Points that caused error:', points);
+      return '';
+    }
   };
 
   const onStrokeEnd = useCallback(() => {
@@ -177,6 +209,8 @@ export default function CanvasScreen({ route }) {
         userId: realtimeCollab.currentUserId || 'unknown_user',
         timestamp: Date.now(),
       };
+      
+      console.log('[CanvasScreen] Stroke ended:', currentStroke);
       
       try {
         if (realtimeCollab.isConnected) {
@@ -226,6 +260,26 @@ export default function CanvasScreen({ route }) {
   };
 
   const handleRedo = () => redo();
+  const handleSync = async () => {
+    if (!isConnected) {
+      Alert.alert(
+        'Offline Mode', 
+        'You are currently offline. Drawing will be synced when connection is restored.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+    const strokesToSync = getAllStrokes();
+    if (!strokesToSync || strokesToSync.length === 0) {
+      Alert.alert('Nothing to sync', 'Please draw something first!');
+      return;
+    }
+    if (isCollaborativeMode && realtimeCollab.isConnected) {
+      realtimeCollab.syncStrokesToYjs(strokesToSync);
+  
+    }
+  };
+
   const handleSave = async () => {
     if (!isConnected) {
       Alert.alert(
@@ -235,7 +289,6 @@ export default function CanvasScreen({ route }) {
       );
       return;
     }
-
     saveDrawingLocally();
   };
 
@@ -380,12 +433,32 @@ export default function CanvasScreen({ route }) {
         const y = locationY || 0;
         setTouchDebug(`Touch at ${Math.round(x)}, ${Math.round(y)}`);
         addPoint({ x, y });
+        // Collaborative: start stroke
+        if (isCollaborativeMode && roomId && currentStroke.length === 0) {
+          const strokeData = {
+            points: [{ x, y }],
+            path: '',
+            color: 'blue',
+            width: 3,
+            userId: realtimeCollab.currentUserId || 'unknown_user',
+            timestamp: Date.now(),
+          };
+          if (realtimeCollab.isConnected) {
+            realtimeCollab.addStroke(strokeData);
+          }
+        }
       },
       onPanResponderMove: (evt, gestureState) => {
         const { locationX, locationY } = evt.nativeEvent;
         const x = locationX || 0;
         const y = locationY || 0;
         addPoint({ x, y });
+        // Collaborative: send point
+        if (isCollaborativeMode && roomId) {
+          if (realtimeCollab.isConnected) {
+            realtimeCollab.addPointToStroke({ x, y });
+          }
+        }
       },
       onPanResponderRelease: (evt, gestureState) => {
         onStrokeEnd();
@@ -452,24 +525,74 @@ export default function CanvasScreen({ route }) {
         pointerEvents="box-none"
       >
         <Canvas style={GlobalStyles.canvasContainer}>
-          {getAllStrokes().map((stroke, idx) => (
-            <Path
-              key={idx}
-              path={pointsToSvgPath(stroke)}
-              color={getStrokeColor()}
-              style="stroke"
-              strokeWidth={3}
-            />
-          ))}
+          {(() => {
+            try {
+              const allStrokes = getAllStrokes();
+              console.log('[CanvasScreen] Rendering strokes count:', allStrokes.length);
+              
+              return allStrokes
+                .filter((stroke, idx) => {
+                  if (!Array.isArray(stroke)) {
+                    console.log(`[CanvasScreen] Invalid stroke at index ${idx}:`, stroke);
+                    return false;
+                  }
+                  if (stroke.length === 0) {
+                    console.log(`[CanvasScreen] Empty stroke at index ${idx}`);
+                    return false;
+                  }
+                  return true;
+                })
+                .map((stroke, idx) => {
+                  try {
+                    const path = pointsToSvgPath(stroke);
+                    if (!path) {
+                      console.log(`[CanvasScreen] No path generated for stroke ${idx}`);
+                      return null;
+                    }
+                    
+                    return (
+                      <Path
+                        key={`stroke-${idx}`}
+                        path={path}
+                        color={getStrokeColor()}
+                        style="stroke"
+                        strokeWidth={3}
+                      />
+                    );
+                  } catch (error) {
+                    console.error(`[CanvasScreen] Error rendering stroke ${idx}:`, error);
+                    console.error(`[CanvasScreen] Stroke data:`, stroke);
+                    return null;
+                  }
+                })
+                .filter(Boolean);
+            } catch (error) {
+              console.error('[CanvasScreen] Error in stroke rendering loop:', error);
+              return [];
+            }
+          })()}
 
-          {currentStroke.length > 0 && (
-            <Path
-              path={pointsToSvgPath(currentStroke)}
-              color={getStrokeColor()}
-              style="stroke"
-              strokeWidth={3}
-            />
-          )}
+          {(() => {
+            try {
+              if (currentStroke.length > 0) {
+                const path = pointsToSvgPath(currentStroke);
+                if (path) {
+                  return (
+                    <Path
+                      path={path}
+                      color={getStrokeColor()}
+                      style="stroke"
+                      strokeWidth={3}
+                    />
+                  );
+                }
+              }
+              return null;
+            } catch (error) {
+              console.error('[CanvasScreen] Error rendering current stroke:', error);
+              return null;
+            }
+          })()}
         </Canvas>
         
         <View 
@@ -508,7 +631,8 @@ export default function CanvasScreen({ route }) {
           undo: handleUndo,
           redo: handleRedo,
           clear: handleClear,
-          save: handleSave,
+          save: isCollaborativeMode ? handleSync : handleSave,
+          isCollaborativeMode: isCollaborativeMode,
         }}
       />
     </View>
