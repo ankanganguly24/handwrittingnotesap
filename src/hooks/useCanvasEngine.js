@@ -49,9 +49,73 @@ const useCanvasEngine = () => {
   };
 
   const loadStrokes = (strokes) => {
-    historyRef.current = strokes.map(stroke => [...stroke.points]);
-    redoStackRef.current = [];
-    setCurrentStroke([]);
+    try {
+      console.log('[CanvasEngine] Loading strokes:', strokes);
+      
+      // Defensive filtering to ensure only valid stroke arrays are loaded
+      const validStrokes = strokes
+        .filter(stroke => {
+          if (!Array.isArray(stroke)) {
+            console.log('[CanvasEngine] Invalid stroke (not array):', stroke);
+            return false;
+          }
+          if (stroke.length === 0) {
+            console.log('[CanvasEngine] Empty stroke array');
+            return false;
+          }
+          // Check if all points in the stroke are valid
+          const allPointsValid = stroke.every(point => {
+            if (!point || typeof point !== 'object') {
+              console.log('[CanvasEngine] Invalid point (not object):', point);
+              return false;
+            }
+            if (typeof point.x !== 'number' || typeof point.y !== 'number') {
+              console.log('[CanvasEngine] Invalid point (not numbers):', point);
+              return false;
+            }
+            if (isNaN(point.x) || isNaN(point.y)) {
+              console.log('[CanvasEngine] Invalid point (NaN):', point);
+              return false;
+            }
+            return true;
+          });
+          
+          if (!allPointsValid) {
+            console.log('[CanvasEngine] Stroke contains invalid points:', stroke);
+            return false;
+          }
+          
+          return true;
+        })
+        .map(stroke => {
+          // Create a clean copy of each stroke with only valid points
+          return stroke.filter(point => 
+            point && 
+            typeof point === 'object' && 
+            typeof point.x === 'number' && 
+            typeof point.y === 'number' &&
+            !isNaN(point.x) && 
+            !isNaN(point.y)
+          );
+        })
+        .filter(stroke => stroke.length > 0); // Remove any strokes that became empty after filtering
+    
+      console.log('[CanvasEngine] Valid strokes after filtering:', validStrokes.length);
+      
+      historyRef.current = validStrokes;
+      redoStackRef.current = [];
+      currentStrokeRef.current = [];
+      setCurrentStroke([]);
+    } catch (error) {
+      console.error('[CanvasEngine] Error in loadStrokes:', error);
+      console.error('[CanvasEngine] Input strokes that caused error:', strokes);
+      
+      // Fallback: clear everything
+      historyRef.current = [];
+      redoStackRef.current = [];
+      currentStrokeRef.current = [];
+      setCurrentStroke([]);
+    }
   };
 
   const getAllStrokes = () => {

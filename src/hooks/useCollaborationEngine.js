@@ -38,7 +38,8 @@ export const useCollaborationEngine = (docKey = 'yjs_canvas_doc', isCollaborativ
       try {
         const update = Y.encodeStateAsUpdate(ydoc);
         AsyncStorage.setItem(docKey, JSON.stringify(Array.from(update)));
-        setLocalStrokes([...strokes.toArray()]);
+        // Flatten strokes array and filter out empty strokes
+        setLocalStrokes([...strokes.toArray().flat().filter(s => s && s.points && s.points.length > 0)]);
       } catch (err) {}
     };
 
@@ -64,6 +65,10 @@ export const useCollaborationEngine = (docKey = 'yjs_canvas_doc', isCollaborativ
     ydoc.transact(() => {
       strokes.push([normalizedStroke]);
     });
+
+    // Immediately propagate the update
+    const update = Y.encodeStateAsUpdate(ydoc);
+    AsyncStorage.setItem(docKey, JSON.stringify(Array.from(update)));
   };
 
   const clearCanvas = () => {
@@ -83,6 +88,10 @@ export const useCollaborationEngine = (docKey = 'yjs_canvas_doc', isCollaborativ
     ydoc.transact(() => {
       strokes.delete(strokes.length - 1, 1);
     });
+
+    // Immediately propagate the update
+    const update = Y.encodeStateAsUpdate(ydoc);
+    AsyncStorage.setItem(docKey, JSON.stringify(Array.from(update)));
   };
 
   const simulateMerge = async (otherDocKey) => {
