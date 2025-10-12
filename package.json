@@ -22,6 +22,7 @@
     "expo-camera": "~17.0.8",
     "expo-gl": "~16.0.7",
     "expo-status-bar": "~3.0.8",
+    "postinstall-postinstall": "^2.1.0",
     "react": "19.1.0",
     "react-native": "0.81.4",
     "react-native-gesture-handler": "^2.28.0",
@@ -34,11 +35,13 @@
     "yjs": "^13.6.27"
   },
   "devDependencies": {
-    "patch-package": "^8.0.0"
+    "patch-package": "^8.0.1"
   },
   "expo": {
     "install": {
-      "exclude": ["@shopify/react-native-skia"]
+      "exclude": [
+        "@shopify/react-native-skia"
+      ]
     }
   }
 }
