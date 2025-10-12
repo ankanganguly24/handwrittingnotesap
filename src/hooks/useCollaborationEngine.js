@@ -8,7 +8,6 @@ export const useCollaborationEngine = (docKey = 'yjs_canvas_doc', isCollaborativ
   const [localStrokes, setLocalStrokes] = useState([]);
   const [connectionStatus, setConnectionStatus] = useState('disconnected');
   
-  // Fix validation - handle null docKey properly
   const isEnabled = Boolean(isCollaborative && 
                            docKey && 
                            docKey !== 'null' && 
@@ -16,16 +15,10 @@ export const useCollaborationEngine = (docKey = 'yjs_canvas_doc', isCollaborativ
                            typeof docKey === 'string' && 
                            docKey.trim().length > 0);
 
-  console.log(`🔧 Collaboration Engine - enabled: ${isEnabled}, docKey: "${docKey}", isCollaborative: ${isCollaborative}`);
-
-  // Load persisted CRDT state on startup
   useEffect(() => {
     if (!isEnabled) {
-      console.log(`❌ Collaboration engine disabled`);
       return;
     }
-
-    console.log(`🔧 Loading collaboration engine for docKey: "${docKey}"`);
 
     const loadDoc = async () => {
       try {
@@ -33,42 +26,32 @@ export const useCollaborationEngine = (docKey = 'yjs_canvas_doc', isCollaborativ
         if (stored) {
           const update = Uint8Array.from(JSON.parse(stored));
           Y.applyUpdate(ydoc, update);
-          console.log(`✅ Loaded CRDT state for ${docKey}`);
         }
         setLocalStrokes([...strokes.toArray()]);
-      } catch (err) {
-        console.error('Error loading CRDT state:', err);
-      }
+      } catch (err) {}
     };
 
     loadDoc();
 
-    // Observe changes and persist automatically
     const observer = () => {
       if (!isEnabled) return;
       try {
         const update = Y.encodeStateAsUpdate(ydoc);
         AsyncStorage.setItem(docKey, JSON.stringify(Array.from(update)));
         setLocalStrokes([...strokes.toArray()]);
-        console.log(`💾 Persisted CRDT state for ${docKey}`);
-      } catch (err) {
-        console.error('Error persisting CRDT state:', err);
-      }
+      } catch (err) {}
     };
 
     strokes.observe(observer);
 
     return () => {
       strokes.unobserve(observer);
-      console.log(`🧹 Cleanup collaboration engine for ${docKey}`);
     };
   }, [docKey, isEnabled]);
 
-  // Actions
   const addStroke = (stroke) => {
     if (!isEnabled) return;
     
-    // Ensure consistent stroke format
     const normalizedStroke = {
       points: stroke.points || [],
       path: stroke.path || '',
@@ -109,10 +92,7 @@ export const useCollaborationEngine = (docKey = 'yjs_canvas_doc', isCollaborativ
       if (!stored) return;
       const update = Uint8Array.from(JSON.parse(stored));
       Y.applyUpdate(ydoc, update);
-      console.log('Merged CRDT data from', otherDocKey);
-    } catch (err) {
-      console.error('Merge failed:', err);
-    }
+    } catch (err) {}
   };
 
   return {

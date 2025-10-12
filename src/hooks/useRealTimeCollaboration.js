@@ -3,7 +3,6 @@ import { AppState } from 'react-native';
 import * as Y from 'yjs';
 import * as SQLite from 'expo-sqlite';
 
-// Global connection cache to persist across component mounts
 const connectionCache = new Map();
 
 export const useRealTimeCollaboration = (roomId, enabled = false) => {
@@ -29,7 +28,6 @@ export const useRealTimeCollaboration = (roomId, enabled = false) => {
   const shouldReconnectRef = useRef(true);
   const isMountedRef = useRef(true);
 
-  // Initialize SQLite database
   useEffect(() => {
     const initDB = async () => {
       const db = await SQLite.openDatabaseAsync('collaboration.db');
@@ -47,17 +45,13 @@ export const useRealTimeCollaboration = (roomId, enabled = false) => {
     initDB();
   }, []);
 
-  // Initialize Yjs document and WebSocket connection
   useEffect(() => {
-    // Simple validation
     if (!enabled) {
-      console.log(`❌ Collaboration disabled - enabled: ${enabled}`);
       shouldReconnectRef.current = false;
       setConnectionStatus('disabled');
       return;
     }
 
-    // Enhanced roomId validation with fallback
     let validRoomId = roomId;
     
     if (!roomId || 
@@ -65,18 +59,14 @@ export const useRealTimeCollaboration = (roomId, enabled = false) => {
         roomId === 'undefined' || 
         typeof roomId !== 'string' || 
         roomId.trim() === '') {
-      
-      console.log(`⚠️ Invalid roomId provided: "${roomId}", using fallback`);
-      validRoomId = 'collab_room_main'; // Fallback to default
+      validRoomId = 'collab_room_main';
     }
 
     const trimmedRoomId = validRoomId.trim();
-    console.log(`🔗 Initializing collaboration for room: "${trimmedRoomId}", user: ${currentUserId}`);
 
     isMountedRef.current = true;
     shouldReconnectRef.current = true;
 
-    // Use ONLY roomId for cache key (shared across all users in room)
     const cacheKey = trimmedRoomId;
     let yDoc = connectionCache.get(`${cacheKey}_doc`);
     let ws = connectionCache.get(`${cacheKey}_ws`);
@@ -84,9 +74,6 @@ export const useRealTimeCollaboration = (roomId, enabled = false) => {
     if (!yDoc) {
       yDoc = new Y.Doc();
       connectionCache.set(`${cacheKey}_doc`, yDoc);
-      console.log(`📄 Created new Y.Doc for room: ${trimmedRoomId}`);
-    } else {
-      console.log(`📄 Reusing existing Y.Doc for room: ${trimmedRoomId}`);
     }
 
     yDocRef.current = yDoc;
@@ -95,40 +82,32 @@ export const useRealTimeCollaboration = (roomId, enabled = false) => {
 
     const connectWebSocket = () => {
       if (!isMountedRef.current || !shouldReconnectRef.current) {
-        console.log('❌ Connection aborted - component unmounted or should not reconnect');
         return;
       }
 
-      // Check if WebSocket exists and is open
-      if (ws && ws.readyState === 1) { // WebSocket.OPEN
+      if (ws && ws.readyState === 1) {
         wsRef.current = ws;
         setConnectionStatus('connected');
         reconnectAttemptsRef.current = 0;
-        console.log(`✅ Reusing existing WebSocket for room: ${trimmedRoomId}`);
         
-        // Register this user in the users map
         if (yUsersRef.current) {
           yUsersRef.current.set(currentUserId, {
             id: currentUserId,
             joinedAt: Date.now(),
             lastSeen: Date.now()
           });
-          console.log(`👤 Registered user ${currentUserId} in room ${trimmedRoomId}`);
         }
         return;
       }
 
-      // Prevent multiple simultaneous connection attempts
       if (isConnectingRef.current || reconnectAttemptsRef.current >= maxReconnectAttempts) {
         if (reconnectAttemptsRef.current >= maxReconnectAttempts) {
-          console.log('❌ Max reconnection attempts reached, switching to offline mode');
           setConnectionStatus('failed');
           shouldReconnectRef.current = false;
         }
         return;
       }
 
-      // Clean up existing connection
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
@@ -138,22 +117,18 @@ export const useRealTimeCollaboration = (roomId, enabled = false) => {
         isConnectingRef.current = true;
         setConnectionStatus('connecting');
         reconnectAttemptsRef.current += 1;
-        console.log(`🔄 Connection attempt ${reconnectAttemptsRef.current}/${maxReconnectAttempts} for room ${trimmedRoomId}`);
 
         if (typeof global.WebSocket === 'undefined') {
           throw new Error('WebSocket is not available in this environment');
         }
 
         const wsUrl = `ws://192.168.29.215:1234/${encodeURIComponent(trimmedRoomId)}`;
-        console.log(`🌐 Connecting to: ${wsUrl}`);
         
         const newWs = new global.WebSocket(wsUrl);
         wsRef.current = newWs;
 
-        // Connection timeout
         const connectionTimer = setTimeout(() => {
-          if (newWs.readyState === 0) { // CONNECTING
-            console.log('⏱️ Connection timeout for room', trimmedRoomId);
+          if (newWs.readyState === 0) {
             newWs.close();
             isConnectingRef.current = false;
             setConnectionStatus('error');
@@ -163,35 +138,28 @@ export const useRealTimeCollaboration = (roomId, enabled = false) => {
 
         newWs.onopen = () => {
           if (!isMountedRef.current) {
-            console.log('⚠️ WebSocket opened but component unmounted');
             newWs.close();
             return;
           }
           
-          console.log(`✅ WebSocket connected to room: ${trimmedRoomId} as user: ${currentUserId}`);
           clearTimeout(connectionTimer);
           isConnectingRef.current = false;
           setConnectionStatus('connected');
           reconnectAttemptsRef.current = 0;
           
-          // Cache the connection (room-level only)
           connectionCache.set(`${cacheKey}_ws`, newWs);
           
-          // Register current user in users map
           if (yUsersRef.current) {
             yUsersRef.current.set(currentUserId, {
               id: currentUserId,
               joinedAt: Date.now(),
               lastSeen: Date.now()
             });
-            console.log(`👥 User ${currentUserId} joined room ${trimmedRoomId}`);
           }
           
-          // Send initial state if document has content
           const update = Y.encodeStateAsUpdate(yDoc);
           if (update.length > 2) {
             newWs.send(JSON.stringify(Array.from(update)));
-            console.log(`📤 Sent initial state (${update.length} bytes) to room ${trimmedRoomId}`);
           }
           
           syncOfflineStrokes();
@@ -203,10 +171,8 @@ export const useRealTimeCollaboration = (roomId, enabled = false) => {
           try {
             const data = event.data;
             
-            // Handle room info messages
             if (data.includes('room-info')) {
               const info = JSON.parse(data);
-              console.log(`📊 Room info received:`, info);
               return;
             }
             
@@ -220,14 +186,10 @@ export const useRealTimeCollaboration = (roomId, enabled = false) => {
             }
             
             Y.applyUpdate(yDoc, update, 'server');
-            console.log(`📥 Applied update from server (${update.length} bytes) in room ${roomId}`);
-          } catch (error) {
-            console.error('❌ Error processing message:', error);
-          }
+          } catch (error) {}
         };
 
         newWs.onerror = (error) => {
-          console.error('❌ WebSocket error for room', roomId, ':', error);
           clearTimeout(connectionTimer);
           isConnectingRef.current = false;
           if (isMountedRef.current) {
@@ -237,25 +199,17 @@ export const useRealTimeCollaboration = (roomId, enabled = false) => {
         };
 
         newWs.onclose = (event) => {
-          console.log(`🔌 WebSocket closed for room ${roomId}:`, { 
-            code: event.code, 
-            reason: event.reason,
-            wasClean: event.wasClean
-          });
           clearTimeout(connectionTimer);
           isConnectingRef.current = false;
           
-          // Remove from cache
           if (connectionCache.get(`${cacheKey}_ws`) === newWs) {
             connectionCache.delete(`${cacheKey}_ws`);
           }
           
           if (!isMountedRef.current) {
-            console.log('⚠️ Component unmounted, not reconnecting');
             return;
           }
           
-          // Don't reconnect if intentionally closed
           if (event.code === 1000 && event.reason === 'Component unmounted') {
             setConnectionStatus('disconnected');
             return;
@@ -267,12 +221,10 @@ export const useRealTimeCollaboration = (roomId, enabled = false) => {
           }
         };
 
-        // Set up document update handler
         const updateHandler = (update, origin) => {
-          if (newWs && newWs.readyState === 1 && origin !== 'server') { // WebSocket.OPEN
+          if (newWs && newWs.readyState === 1 && origin !== 'server') {
             if (update.length > 2) {
               newWs.send(JSON.stringify(Array.from(update)));
-              console.log(`📤 Sent update (${update.length} bytes) to room ${roomId}`);
             }
           }
         };
@@ -285,7 +237,6 @@ export const useRealTimeCollaboration = (roomId, enabled = false) => {
         };
 
       } catch (error) {
-        console.error('❌ WebSocket connection failed for room', trimmedRoomId, ':', error);
         isConnectingRef.current = false;
         if (isMountedRef.current) {
           setConnectionStatus('error');
@@ -294,12 +245,10 @@ export const useRealTimeCollaboration = (roomId, enabled = false) => {
       }
     };
 
-    // Observe stroke changes
     const strokeObserver = () => {
       if (!isMountedRef.current) return;
       
       const strokes = yStrokesRef.current.toArray();
-      console.log(`✏️ Strokes updated in room ${trimmedRoomId}: ${strokes.length} total`);
       setLocalStrokes([...strokes]);
       setCollaborationStats((prev) => ({
         ...prev,
@@ -309,13 +258,11 @@ export const useRealTimeCollaboration = (roomId, enabled = false) => {
       }));
     };
 
-    // Observe user changes
     const userObserver = () => {
       if (!isMountedRef.current) return;
       
       const users = [];
       yUsersRef.current.forEach((user, userId) => {
-        // Only include users active in last 60 seconds
         if (Date.now() - user.lastSeen < 60000) {
           users.push({
             id: userId,
@@ -325,13 +272,11 @@ export const useRealTimeCollaboration = (roomId, enabled = false) => {
       });
       
       setConnectedUsers([...users]);
-      console.log(`👥 Connected users in room ${trimmedRoomId}:`, users.length, users.map(u => u.id));
     };
 
     yStrokesRef.current.observe(strokeObserver);
     yUsersRef.current.observe(userObserver);
     
-    // Keep user alive with periodic heartbeat
     const keepAliveInterval = setInterval(() => {
       if (yUsersRef.current && connectionStatus === 'connected' && isMountedRef.current) {
         const currentUser = yUsersRef.current.get(currentUserId);
@@ -344,10 +289,8 @@ export const useRealTimeCollaboration = (roomId, enabled = false) => {
       }
     }, 15000);
     
-    // Initial connection
     connectWebSocket();
 
-    // Handle app state changes
     const handleAppStateChange = (nextAppState) => {
       if (nextAppState === 'active') {
         shouldReconnectRef.current = true;
@@ -366,25 +309,19 @@ export const useRealTimeCollaboration = (roomId, enabled = false) => {
       isMountedRef.current = false;
       shouldReconnectRef.current = false;
       
-      console.log(`🔌 Cleanup for user ${currentUserId} in room ${trimmedRoomId}`);
-      
-      // Remove user from users map
       if (yUsersRef.current) {
         yUsersRef.current.delete(currentUserId);
-        console.log(`👋 User ${currentUserId} left room ${trimmedRoomId}`);
       }
       
       yStrokesRef.current?.unobserve(strokeObserver);
       yUsersRef.current?.unobserve(userObserver);
       clearInterval(keepAliveInterval);
       
-      // Immediate cleanup - close connection when component unmounts
       if (wsRef.current && wsRef.current.readyState === 1) {
         wsRef.current.close(1000, 'Component unmounted');
         wsRef.current = null;
       }
       
-      // Clean up cache after delay only if no other users
       setTimeout(() => {
         const remainingUsers = [];
         try {
@@ -393,12 +330,9 @@ export const useRealTimeCollaboration = (roomId, enabled = false) => {
               remainingUsers.push(user);
             }
           });
-        } catch (e) {
-          // YDoc might be disposed
-        }
+        } catch (e) {}
         
         if (remainingUsers.length === 0) {
-          console.log(`🧹 Cleaning up cache for empty room ${roomId}`);
           connectionCache.delete(`${cacheKey}_ws`);
           connectionCache.delete(`${cacheKey}_doc`);
         }
@@ -422,14 +356,10 @@ export const useRealTimeCollaboration = (roomId, enabled = false) => {
     }
 
     const delay = Math.min(2000 * reconnectAttemptsRef.current, 10000);
-    console.log(`⏱️ Scheduling reconnect in ${delay}ms`);
 
     reconnectTimeoutRef.current = setTimeout(() => {
       reconnectTimeoutRef.current = null;
-      if (shouldReconnectRef.current && enabled && roomId && !isConnectingRef.current && isMountedRef.current) {
-        console.log('🔄 Attempting to reconnect...');
-        // The connectWebSocket function will be called in the main useEffect
-      }
+      if (shouldReconnectRef.current && enabled && roomId && !isConnectingRef.current && isMountedRef.current) {}
     }, delay);
   };
 
@@ -450,9 +380,7 @@ export const useRealTimeCollaboration = (roomId, enabled = false) => {
           [row.id]
         );
       }
-    } catch (error) {
-      console.error('Error syncing offline strokes:', error);
-    }
+    } catch (error) {}
   };
 
   const saveOfflineStroke = async (stroke) => {
@@ -463,9 +391,7 @@ export const useRealTimeCollaboration = (roomId, enabled = false) => {
         'INSERT INTO offline_strokes (room_id, stroke_data, timestamp) VALUES (?, ?, ?)',
         [roomId, JSON.stringify(stroke), Date.now()]
       );
-    } catch (error) {
-      console.error('Error saving offline stroke:', error);
-    }
+    } catch (error) {}
   };
 
   const addStroke = useCallback(
@@ -484,14 +410,11 @@ export const useRealTimeCollaboration = (roomId, enabled = false) => {
       try {
         if (connectionStatus === 'connected') {
           yStrokesRef.current.push([strokeWithUser]);
-          console.log(`✏️ Added stroke to room ${roomId} by user ${currentUserId}`);
         } else {
           saveOfflineStroke(strokeWithUser);
           setLocalStrokes((prev) => [...prev, strokeWithUser]);
-          console.log(`💾 Saved stroke offline for room ${roomId}`);
         }
       } catch (error) {
-        console.error('Error adding stroke:', error);
         saveOfflineStroke(strokeWithUser);
         setLocalStrokes((prev) => [...prev, strokeWithUser]);
       }
@@ -505,9 +428,7 @@ export const useRealTimeCollaboration = (roomId, enabled = false) => {
     try {
       yStrokesRef.current.delete(0, yStrokesRef.current.length);
       setLocalStrokes([]);
-      console.log(`🗑️ Cleared canvas in room ${roomId}`);
     } catch (error) {
-      console.error('Error clearing canvas:', error);
       setLocalStrokes([]);
     }
   }, [enabled, roomId]);
@@ -517,10 +438,7 @@ export const useRealTimeCollaboration = (roomId, enabled = false) => {
     
     try {
       yStrokesRef.current.delete(yStrokesRef.current.length - 1, 1);
-      console.log(`↶ Undo stroke in room ${roomId}`);
-    } catch (error) {
-      console.error('Error undoing stroke:', error);
-    }
+    } catch (error) {}
   }, [enabled, roomId]);
 
   return {

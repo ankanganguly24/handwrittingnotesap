@@ -24,14 +24,10 @@ export default function CanvasScreen({ route }) {
   const isCollaborativeMode = route?.params?.collaborativeMode || false;
   const roomIdParam = route?.params?.roomId;
   
-  // Force default room for collaborative mode - simpler approach
   const roomId = isCollaborativeMode ? 'collab_room_main' : null;
-  
-  console.log(`🏠 Canvas Screen - Collaborative Mode: ${isCollaborativeMode}, Room ID: ${roomId}`);
   
   const [currentStroke, addPoint, endStroke, undo, redo, clear, getAllStrokes, loadStrokes] = useCanvasEngine();
 
-  // Initialize collaboration engines with proper error handling
   const collaborationEngine = useCollaborationEngine(
     isCollaborativeMode && roomId ? `collab_${roomId}` : null,
     isCollaborativeMode
@@ -49,26 +45,18 @@ export default function CanvasScreen({ route }) {
   const [touchDebug, setTouchDebug] = useState('No touch detected');
   const lastSyncedStrokeCount = useRef(0);
 
-  // Sync collaboration strokes to canvas engine
   useEffect(() => {
     if (!isCollaborativeMode || !roomId) return;
-
-    console.log(`🔄 Syncing collaboration strokes for room: ${roomId}`);
-    console.log(`📊 Realtime connected: ${realtimeCollab.isConnected}, Users: ${realtimeCollab.connectedUsers.length}`);
-    console.log(`📊 Realtime strokes: ${realtimeCollab.localStrokes.length}, Engine strokes: ${collaborationEngine.localStrokes.length}`);
 
     const collabStrokes = realtimeCollab.isConnected 
       ? realtimeCollab.localStrokes 
       : collaborationEngine.localStrokes;
 
     if (collabStrokes && collabStrokes.length !== lastSyncedStrokeCount.current) {
-      console.log(`✅ Syncing ${collabStrokes.length} strokes to canvas`);
       lastSyncedStrokeCount.current = collabStrokes.length;
       
-      // Convert collaboration strokes to canvas engine format
       const strokesAsPoints = collabStrokes.map(stroke => {
         if (!stroke.points || !Array.isArray(stroke.points)) {
-          console.warn('Invalid stroke points:', stroke);
           return [];
         }
         return stroke.points;
@@ -112,7 +100,6 @@ export default function CanvasScreen({ route }) {
           }
         }
       } catch (err) {
-        console.log('Error loading strokes:', err);
       } finally {
         setIsLoading(false);
       }
@@ -168,9 +155,7 @@ export default function CanvasScreen({ route }) {
           
           const storageKey = isCollaborativeMode ? COLLABORATIVE_STORAGE_KEY : STORAGE_KEY;
           await AsyncStorage.setItem(storageKey, JSON.stringify(strokesToSave));
-        } catch (err) {
-          console.log('Error saving strokes:', err);
-        }
+        } catch (err) {}
       }, saveDelay);
     }
   }, [currentStroke, getAllStrokes().length, isCollaborativeMode]); 
@@ -181,14 +166,11 @@ export default function CanvasScreen({ route }) {
   };
 
   const onStrokeEnd = useCallback(() => {
-    console.log(`🖊️ Stroke ended - Collaborative: ${isCollaborativeMode}, Current stroke length: ${currentStroke.length}`);
-    
     endStroke();
     
-    // If in collaborative mode, sync the stroke
     if (isCollaborativeMode && currentStroke.length > 0 && roomId) {
       const strokeData = {
-        points: [...currentStroke], // Create a copy
+        points: [...currentStroke],
         path: pointsToSvgPath(currentStroke),
         color: 'blue',
         width: 3,
@@ -196,24 +178,13 @@ export default function CanvasScreen({ route }) {
         timestamp: Date.now(),
       };
       
-      console.log(`📤 Adding stroke to collaboration: ${JSON.stringify({
-        pointsLength: strokeData.points.length,
-        userId: strokeData.userId,
-        roomId: roomId
-      })}`);
-      
-      // Add to collaboration engines with error handling
       try {
         if (realtimeCollab.isConnected) {
           realtimeCollab.addStroke(strokeData);
-          console.log('✅ Added stroke to realtime collaboration');
         } else {
           collaborationEngine.addStroke(strokeData);
-          console.log('✅ Added stroke to local collaboration engine');
         }
-      } catch (error) {
-        console.error('❌ Error adding stroke to collaboration:', error);
-      }
+      } catch (error) {}
     }
   }, [endStroke, currentStroke, isCollaborativeMode, roomId, realtimeCollab]);
 
@@ -324,10 +295,10 @@ export default function CanvasScreen({ route }) {
       
       navigation.navigate('Save');
     } catch (error) {
-      console.error('Error saving drawing:', error);
       Alert.alert('Error', 'Failed to save drawing');
     }
   };
+
   const handleNotes = () => {
     if (editingDrawing) {
       Alert.alert(
