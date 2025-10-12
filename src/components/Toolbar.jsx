@@ -42,8 +42,12 @@ export default function Toolbar({ actions = {} }) {
             style={[GlobalStyles.toolbarButton, GlobalStyles.toolbarButtonPrimary]}
             onPress={actions.save}
           >
-            <Text style={GlobalStyles.toolbarButtonIcon}>💾</Text>
-            <Text style={GlobalStyles.toolbarLabel}>Save</Text>
+            <Text style={GlobalStyles.toolbarButtonIcon}>
+              {actions.isCollaborativeMode ? '🔄' : '💾'}
+            </Text>
+            <Text style={GlobalStyles.toolbarLabel}>
+              {actions.isCollaborativeMode ? 'Sync' : 'Save'}
+            </Text>
           </TouchableOpacity>
         )}
       </View>

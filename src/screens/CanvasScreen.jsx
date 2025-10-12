@@ -276,8 +276,7 @@ export default function CanvasScreen({ route }) {
     }
     if (isCollaborativeMode && realtimeCollab.isConnected) {
       realtimeCollab.syncStrokesToYjs(strokesToSync);
-      Alert.alert('Synced!', 'Drawing synced to all collaborators.');
-      // Remove local loadStrokes here, let useEffect handle it for all devices
+  
     }
   };
 
@@ -633,6 +632,7 @@ export default function CanvasScreen({ route }) {
           redo: handleRedo,
           clear: handleClear,
           save: isCollaborativeMode ? handleSync : handleSave,
+          isCollaborativeMode: isCollaborativeMode,
         }}
       />
     </View>
