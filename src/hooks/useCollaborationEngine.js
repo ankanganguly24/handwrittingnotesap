@@ -2,16 +2,14 @@ import * as Y from 'yjs';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useRef, useState } from 'react';
 
-/**
- * Local-only CRDT engine for offline-first collaboration simulation.
- */
-export const useCollaborationEngine = (docKey = 'yjs_canvas_doc') => {
+export const useCollaborationEngine = (docKey = 'yjs_canvas_doc', isCollaborative = false) => {
   const ydoc = useRef(new Y.Doc()).current;
   const strokes = ydoc.getArray('strokes');
   const [localStrokes, setLocalStrokes] = useState([]);
+  const [connectionStatus, setConnectionStatus] = useState('disconnected');
   const isEnabled = docKey !== null && docKey !== undefined;
 
-  // 🔹 Load persisted CRDT state on startup
+  // Load persisted CRDT state on startup
   useEffect(() => {
     if (!isEnabled) return;
 
@@ -30,7 +28,7 @@ export const useCollaborationEngine = (docKey = 'yjs_canvas_doc') => {
 
     loadDoc();
 
-    // 🔹 Observe changes and persist automatically
+    // Observe changes and persist automatically
     const observer = () => {
       if (!isEnabled) return;
       try {
@@ -47,11 +45,22 @@ export const useCollaborationEngine = (docKey = 'yjs_canvas_doc') => {
     return () => strokes.unobserve(observer);
   }, [docKey, isEnabled]);
 
-  // 🔹 Actions
+  // Actions
   const addStroke = (stroke) => {
     if (!isEnabled) return;
+    
+    // Ensure consistent stroke format
+    const normalizedStroke = {
+      points: stroke.points || [],
+      path: stroke.path || '',
+      color: stroke.color || 'black',
+      width: stroke.width || 3,
+      userId: stroke.userId || 'unknown',
+      timestamp: stroke.timestamp || Date.now(),
+    };
+    
     ydoc.transact(() => {
-      strokes.push([stroke]);
+      strokes.push([normalizedStroke]);
     });
   };
 
@@ -76,7 +85,6 @@ export const useCollaborationEngine = (docKey = 'yjs_canvas_doc') => {
 
   const simulateMerge = async (otherDocKey) => {
     if (!isEnabled) return;
-    // Optional: Simulate merging from another user/device
     try {
       const stored = await AsyncStorage.getItem(otherDocKey);
       if (!stored) return;
@@ -96,5 +104,8 @@ export const useCollaborationEngine = (docKey = 'yjs_canvas_doc') => {
     undoLastStroke,
     simulateMerge,
     isEnabled,
+    connectionStatus,
+    ydoc,
+    yStrokes: strokes,
   };
 };

@@ -10,6 +10,8 @@ import DebugPanel from '../components/DebugPanel';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import useCanvasEngine from '../hooks/useCanvasEngine';
 import useNetworkStatus from '../hooks/useNetworkStatus';
+import { useCollaborationEngine } from '../hooks/useCollaborationEngine';
+import { useRealTimeCollaboration } from '../hooks/useRealTimeCollaboration';
 
 const STORAGE_KEY = '@handwriting_strokes';
 const COLLABORATIVE_STORAGE_KEY = '@collaborative_strokes';
@@ -20,42 +22,106 @@ export default function CanvasScreen({ route }) {
   const [editingDrawing, setEditingDrawing] = useState(null);
   
   const isCollaborativeMode = route?.params?.collaborativeMode || false;
-  const [collaborators, setCollaborators] = useState(isCollaborativeMode ? ['User1'] : []);
+  const roomIdParam = route?.params?.roomId;
+  
+  // Fix roomId generation - ensure it's NEVER null when collaborative mode is true
+  const [roomId] = useState(() => {
+    if (!isCollaborativeMode) {
+      console.log('🚫 Not in collaborative mode, roomId will be null');
+      return null;
+    }
+    
+    // Always return a valid roomId for collaborative mode
+    let validRoomId;
+    
+    if (roomIdParam && roomIdParam.trim() && roomIdParam !== 'null' && roomIdParam !== 'undefined') {
+      validRoomId = roomIdParam.trim();
+      console.log(`🔗 Using provided roomId: ${validRoomId}`);
+    } else {
+      // Use a fixed room for testing - all devices will join this room
+      validRoomId = 'collab_room_main';
+      console.log(`🔗 Using default roomId: ${validRoomId}`);
+    }
+    
+    return validRoomId;
+  });
+  
+  console.log(`🏠 Canvas Screen - Collaborative Mode: ${isCollaborativeMode}, Room ID: ${roomId}`);
+  
+  // Add validation to ensure roomId is never null in collaborative mode
+  useEffect(() => {
+    if (isCollaborativeMode && !roomId) {
+      console.error('❌ CRITICAL ERROR: Collaborative mode is true but roomId is null!');
+      Alert.alert(
+        'Collaboration Error',
+        'Failed to initialize collaborative session. Switching to normal mode.',
+        [
+          {
+            text: 'OK',
+            onPress: () => navigation.navigate('Canvas', { collaborativeMode: false })
+          }
+        ]
+      );
+    }
+  }, [isCollaborativeMode, roomId, navigation]);
   
   const [currentStroke, addPoint, endStroke, undo, redo, clear, getAllStrokes, loadStrokes] = useCanvasEngine();
+
+  // Initialize collaboration engines with proper error handling
+  const collaborationEngine = useCollaborationEngine(
+    isCollaborativeMode && roomId ? `collab_${roomId}` : null,
+    isCollaborativeMode
+  );
+
+  const realtimeCollab = useRealTimeCollaboration(
+    roomId,
+    isCollaborativeMode
+  );
 
   const { isConnected } = useNetworkStatus();
   const canvasRef = useRef(null);
   const [canvasLayout, setCanvasLayout] = useState(null);
   const canvasLayoutRef = useRef(null);
   const [touchDebug, setTouchDebug] = useState('No touch detected');
+  const lastSyncedStrokeCount = useRef(0);
 
+  // Sync collaboration strokes to canvas engine
+  useEffect(() => {
+    if (!isCollaborativeMode || !roomId) return;
 
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: (evt, gestureState) => {
-        const { locationX, locationY, pageX, pageY } = evt.nativeEvent;
-        const x = locationX || 0;
-        const y = locationY || 0;
-        setTouchDebug(`Touch at ${Math.round(x)}, ${Math.round(y)}`);
-        addPoint({ x, y });
-      },
-      onPanResponderMove: (evt, gestureState) => {
-        const { locationX, locationY, pageX, pageY } = evt.nativeEvent;
-        const x = locationX || 0;
-        const y = locationY || 0;
-        addPoint({ x, y });
-      },
-      onPanResponderRelease: (evt, gestureState) => {
-        onStrokeEnd();
-      },
-      onPanResponderTerminate: (evt, gestureState) => {
-        onStrokeEnd();
-      },
-    })
-  ).current;
+    console.log(`🔄 Syncing collaboration strokes for room: ${roomId}`);
+    console.log(`📊 Realtime connected: ${realtimeCollab.isConnected}, Users: ${realtimeCollab.connectedUsers.length}`);
+    console.log(`📊 Realtime strokes: ${realtimeCollab.localStrokes.length}, Engine strokes: ${collaborationEngine.localStrokes.length}`);
+
+    const collabStrokes = realtimeCollab.isConnected 
+      ? realtimeCollab.localStrokes 
+      : collaborationEngine.localStrokes;
+
+    if (collabStrokes && collabStrokes.length !== lastSyncedStrokeCount.current) {
+      console.log(`✅ Syncing ${collabStrokes.length} strokes to canvas`);
+      lastSyncedStrokeCount.current = collabStrokes.length;
+      
+      // Convert collaboration strokes to canvas engine format
+      const strokesAsPoints = collabStrokes.map(stroke => {
+        if (!stroke.points || !Array.isArray(stroke.points)) {
+          console.warn('Invalid stroke points:', stroke);
+          return [];
+        }
+        return stroke.points;
+      }).filter(points => points.length > 0);
+      
+      if (strokesAsPoints.length > 0) {
+        loadStrokes(strokesAsPoints);
+      }
+    }
+  }, [
+    realtimeCollab.localStrokes, 
+    collaborationEngine.localStrokes, 
+    isCollaborativeMode, 
+    roomId,
+    realtimeCollab.isConnected,
+    realtimeCollab.connectedUsers.length
+  ]);
 
   useEffect(() => {
     const loadStrokesFromStorage = async () => {
@@ -150,10 +216,42 @@ export default function CanvasScreen({ route }) {
     return points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
   };
 
-
   const onStrokeEnd = useCallback(() => {
+    console.log(`🖊️ Stroke ended - Collaborative: ${isCollaborativeMode}, Current stroke length: ${currentStroke.length}`);
+    
     endStroke();
-  }, [endStroke]);
+    
+    // If in collaborative mode, sync the stroke
+    if (isCollaborativeMode && currentStroke.length > 0 && roomId) {
+      const strokeData = {
+        points: [...currentStroke], // Create a copy
+        path: pointsToSvgPath(currentStroke),
+        color: 'blue',
+        width: 3,
+        userId: realtimeCollab.currentUserId || 'unknown_user',
+        timestamp: Date.now(),
+      };
+      
+      console.log(`📤 Adding stroke to collaboration: ${JSON.stringify({
+        pointsLength: strokeData.points.length,
+        userId: strokeData.userId,
+        roomId: roomId
+      })}`);
+      
+      // Add to collaboration engines with error handling
+      try {
+        if (realtimeCollab.isConnected) {
+          realtimeCollab.addStroke(strokeData);
+          console.log('✅ Added stroke to realtime collaboration');
+        } else {
+          collaborationEngine.addStroke(strokeData);
+          console.log('✅ Added stroke to local collaboration engine');
+        }
+      } catch (error) {
+        console.error('❌ Error adding stroke to collaboration:', error);
+      }
+    }
+  }, [endStroke, currentStroke, isCollaborativeMode, roomId, realtimeCollab]);
 
   const handleClear = () => {
     if (isCollaborativeMode) {
@@ -165,7 +263,14 @@ export default function CanvasScreen({ route }) {
           { 
             text: 'Clear for All', 
             style: 'destructive',
-            onPress: () => clear()
+            onPress: () => {
+              clear();
+              if (realtimeCollab.isConnected) {
+                realtimeCollab.clearCanvas();
+              } else {
+                collaborationEngine.clearCanvas();
+              }
+            }
           }
         ]
       );
@@ -176,6 +281,13 @@ export default function CanvasScreen({ route }) {
 
   const handleUndo = () => {
     undo();
+    if (isCollaborativeMode) {
+      if (realtimeCollab.isConnected) {
+        realtimeCollab.undoLastStroke();
+      } else {
+        collaborationEngine.undoLastStroke();
+      }
+    }
   };
 
   const handleRedo = () => redo();
@@ -316,17 +428,46 @@ export default function CanvasScreen({ route }) {
 
   const resetToNormalMode = () => {
     setEditingDrawing(null);
-    clear(); // Clear the canvas
+    clear();
     navigation.reset({
       index: 0,
       routes: [{ name: 'Canvas' }]
     });
   };
 
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (evt, gestureState) => {
+        const { locationX, locationY } = evt.nativeEvent;
+        const x = locationX || 0;
+        const y = locationY || 0;
+        setTouchDebug(`Touch at ${Math.round(x)}, ${Math.round(y)}`);
+        addPoint({ x, y });
+      },
+      onPanResponderMove: (evt, gestureState) => {
+        const { locationX, locationY } = evt.nativeEvent;
+        const x = locationX || 0;
+        const y = locationY || 0;
+        addPoint({ x, y });
+      },
+      onPanResponderRelease: (evt, gestureState) => {
+        onStrokeEnd();
+      },
+      onPanResponderTerminate: (evt, gestureState) => {
+        onStrokeEnd();
+      },
+    })
+  ).current;
+
   const getStrokeColor = () => isCollaborativeMode ? 'blue' : 'black';
   const getHeaderTitle = () => {
     if (editingDrawing) return `✏️ Editing: ${editingDrawing.title}`;
-    if (isCollaborativeMode) return '🤝 Collaborative';
+    if (isCollaborativeMode) {
+      const roomDisplay = roomId ? roomId.substring(0, 15) : 'No Room';
+      return `🤝 ${roomDisplay}`;
+    }
     return '✍️ Thoughts?';
   };
 
@@ -339,11 +480,21 @@ export default function CanvasScreen({ route }) {
       {isCollaborativeMode && (
         <View style={styles.collaborationStatus}>
           <Text style={styles.collaborationText}>
-            🤝 {collaborators.length} collaborators
+            🏠 {roomId || 'No Room'}
           </Text>
-          {!isConnected && (
-            <Text style={styles.offlineText}>📶 Offline</Text>
-          )}
+          <Text style={styles.collaborationText}>
+            👥 {realtimeCollab.connectedUsers?.length || 0} online
+          </Text>
+          <Text style={styles.collaborationText}>
+            📊 {realtimeCollab.collaborationStats?.totalStrokes || 0} strokes
+          </Text>
+          <View style={[
+            styles.statusDot,
+            { backgroundColor: realtimeCollab.isConnected ? '#00ff00' : '#ff0000' }
+          ]} />
+          <Text style={styles.collaborationText}>
+            {realtimeCollab.connectionStatus || 'unknown'}
+          </Text>
         </View>
       )}
       
@@ -420,6 +571,18 @@ export default function CanvasScreen({ route }) {
         />
       </View>
 
+      {isCollaborativeMode && (
+        <View style={styles.roomInfo}>
+          <Text style={styles.roomInfoText}>Room: {roomId || 'No Room ID'}</Text>
+          <Text style={styles.roomInfoText}>
+            Users: {realtimeCollab.connectedUsers?.map(u => u.id?.substring(5, 10)).join(', ') || 'Only you'}
+          </Text>
+          <Text style={styles.roomInfoText}>
+            Status: {realtimeCollab.connectionStatus} | Strokes: {getAllStrokes().length}
+          </Text>
+        </View>
+      )}
+
       <StrokePreview
         allStrokes={getAllStrokes()}
         currentStroke={currentStroke}
@@ -444,18 +607,40 @@ const styles = {
     top: 200,
     left: 10,
     backgroundColor: 'rgba(0, 123, 255, 0.9)',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
     zIndex: 1000,
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 8,
   },
   collaborationText: {
     color: 'white',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: 'bold',
-    marginRight: 8,
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginHorizontal: 4,
+  },
+  roomInfo: {
+    position: 'absolute',
+    bottom: 80,
+    left: 10,
+    right: 10,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    zIndex: 1000,
+  },
+  roomInfoText: {
+    color: 'white',
+    fontSize: 10,
+    fontFamily: 'monospace',
   },
   offlineIndicator: {
     position: 'absolute',
