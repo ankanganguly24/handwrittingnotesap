@@ -412,27 +412,6 @@ export default function CanvasScreen({ route }) {
     <View style={{ ...GlobalStyles.container, paddingTop: 50, paddingBottom: 70 }}>
       <DebugPanel />
       
-      {isCollaborativeMode && (
-        <View style={styles.collaborationStatus}>
-          <Text style={styles.collaborationText}>
-            🏠 {roomId || 'No Room'}
-          </Text>
-          <Text style={styles.collaborationText}>
-            👥 {realtimeCollab.connectedUsers?.length || 0} online
-          </Text>
-          <Text style={styles.collaborationText}>
-            📊 {realtimeCollab.collaborationStats?.totalStrokes || 0} strokes
-          </Text>
-          <View style={[
-            styles.statusDot,
-            { backgroundColor: realtimeCollab.isConnected ? '#00ff00' : '#ff0000' }
-          ]} />
-          <Text style={styles.collaborationText}>
-            {realtimeCollab.connectionStatus || 'unknown'}
-          </Text>
-        </View>
-      )}
-      
       {!isConnected && !isCollaborativeMode && (
         <View style={styles.offlineIndicator}>
           <Text style={styles.offlineText}>📶 Offline Mode</Text>
@@ -537,30 +516,6 @@ export default function CanvasScreen({ route }) {
 }
 
 const styles = {
-  collaborationStatus: {
-    position: 'absolute',
-    top: 200,
-    left: 10,
-    backgroundColor: 'rgba(0, 123, 255, 0.9)',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-    zIndex: 1000,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  collaborationText: {
-    color: 'white',
-    fontSize: 11,
-    fontWeight: 'bold',
-  },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginHorizontal: 4,
-  },
   roomInfo: {
     position: 'absolute',
     bottom: 80,
