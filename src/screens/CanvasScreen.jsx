@@ -19,7 +19,6 @@ export default function CanvasScreen({ route }) {
   const [isLoading, setIsLoading] = useState(true);
   const [editingDrawing, setEditingDrawing] = useState(null);
   
-  // Check if we're in collaborative mode
   const isCollaborativeMode = route?.params?.collaborativeMode || false;
   const [collaborators, setCollaborators] = useState(isCollaborativeMode ? ['User1'] : []);
   
@@ -61,12 +60,10 @@ export default function CanvasScreen({ route }) {
   useEffect(() => {
     const loadStrokesFromStorage = async () => {
       try {
-        // Check if we're in edit mode
         if (route?.params?.editMode && route?.params?.drawingData) {
           const drawingData = route.params.drawingData;
           setEditingDrawing(drawingData);
           
-          // Convert drawing strokes back to points format
           const strokesAsPoints = drawingData.strokes.map(stroke => {
             return svgPathToPoints(stroke.path);
           });
@@ -75,7 +72,6 @@ export default function CanvasScreen({ route }) {
             loadStrokes(strokesAsPoints);
           }
         } else {
-          // Load from appropriate storage based on mode
           const storageKey = isCollaborativeMode ? COLLABORATIVE_STORAGE_KEY : STORAGE_KEY;
           const stored = await AsyncStorage.getItem(storageKey);
           if (stored) {
@@ -94,7 +90,6 @@ export default function CanvasScreen({ route }) {
     loadStrokesFromStorage();
   }, [route?.params, isCollaborativeMode]);
 
-  // Convert SVG path back to points
   const svgPathToPoints = (pathString) => {
     if (!pathString) return [];
     
@@ -115,7 +110,6 @@ export default function CanvasScreen({ route }) {
     return points;
   };
 
-  // Create a separate ref to track when we need to save
   const saveTimeoutRef = useRef(null);
   const lastStrokeCountRef = useRef(0);
 
@@ -129,7 +123,7 @@ export default function CanvasScreen({ route }) {
         clearTimeout(saveTimeoutRef.current);
       }
       
-      const saveDelay = isCollaborativeMode ? 300 : 500; // Faster sync for collaboration
+      const saveDelay = isCollaborativeMode ? 300 : 500; 
       
       saveTimeoutRef.current = setTimeout(async () => {
         try {
@@ -149,7 +143,7 @@ export default function CanvasScreen({ route }) {
         }
       }, saveDelay);
     }
-  }, [currentStroke, getAllStrokes().length, isCollaborativeMode]); // Depend on stroke count, not the array itself
+  }, [currentStroke, getAllStrokes().length, isCollaborativeMode]); 
 
   const pointsToSvgPath = points => {
     if (!points || points.length === 0) return '';
@@ -217,7 +211,6 @@ export default function CanvasScreen({ route }) {
       };
 
       if (editingDrawing) {
-        // Update existing drawing
         const updatedDrawing = {
           ...editingDrawing,
           ...baseData,
@@ -233,7 +226,6 @@ export default function CanvasScreen({ route }) {
         await AsyncStorage.setItem('@saved_drawings', JSON.stringify(updatedDrawings));
         Alert.alert('Updated!', 'Your drawing has been updated successfully!');
       } else {
-        // Save new drawing
         const drawingData = {
           id: Date.now().toString(),
           title: isCollaborativeMode 
@@ -262,7 +254,6 @@ export default function CanvasScreen({ route }) {
   };
   const handleNotes = () => {
     if (editingDrawing) {
-      // If in edit mode, ask user if they want to save changes first
       Alert.alert(
         'Unsaved Changes',
         'You have unsaved changes. What would you like to do?',
@@ -292,10 +283,8 @@ export default function CanvasScreen({ route }) {
 
   const handleCollaborate = () => {
     if (isCollaborativeMode) {
-      // Exit collaborative mode
       navigation.navigate('Canvas');
     } else {
-      // Enter collaborative mode
       if (editingDrawing) {
         Alert.alert(
           'Exit Edit Mode',
@@ -325,11 +314,9 @@ export default function CanvasScreen({ route }) {
     }
   };
 
-  // Reset to normal canvas mode
   const resetToNormalMode = () => {
     setEditingDrawing(null);
     clear(); // Clear the canvas
-    // Reset navigation params by replacing the current route
     navigation.reset({
       index: 0,
       routes: [{ name: 'Canvas' }]
@@ -347,10 +334,8 @@ export default function CanvasScreen({ route }) {
 
   return (
     <View style={{ ...GlobalStyles.container, paddingTop: 50, paddingBottom: 70 }}>
-      {/* Debug Panel */}
       <DebugPanel />
       
-      {/* Collaboration Status */}
       {isCollaborativeMode && (
         <View style={styles.collaborationStatus}>
           <Text style={styles.collaborationText}>
@@ -362,7 +347,6 @@ export default function CanvasScreen({ route }) {
         </View>
       )}
       
-      {/* Network Status Indicator */}
       {!isConnected && !isCollaborativeMode && (
         <View style={styles.offlineIndicator}>
           <Text style={styles.offlineText}>📶 Offline Mode</Text>
@@ -423,7 +407,6 @@ export default function CanvasScreen({ route }) {
           )}
         </Canvas>
         
-        {/* Transparent overlay for touch detection */}
         <View 
           style={{
             position: 'absolute',
