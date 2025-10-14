@@ -450,15 +450,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **Expo Team** for streamlined development experience
 - **Open Source Contributors** whose libraries made this possible
 
-## 📞 Support & Contact
-
-- **Issues**: [GitHub Issues](https://github.com/[username]/HandwritingDemo/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/[username]/HandwritingDemo/discussions)
-- **Email**: [your-email@example.com]
-- **Documentation**: [Project Wiki](https://github.com/[username]/HandwritingDemo/wiki)
-
----
-
 **Built with ❤️ by Ankan**  
 *Demonstrating modern React Native development practices with performance-first architecture*
 
