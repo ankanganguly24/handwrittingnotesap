@@ -461,4 +461,3 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Platform](https://img.shields.io/badge/platform-iOS%20%7C%20Android-lightgrey)
 
-**Last Updated**: December 2024
